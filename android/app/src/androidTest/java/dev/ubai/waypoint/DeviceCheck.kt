@@ -1,6 +1,8 @@
 package dev.ubai.waypoint
 import android.app.Instrumentation
 import android.app.Activity
+import android.app.ActivityManager
+import org.json.JSONObject
 import android.content.Intent
 import android.os.Bundle
 class DeviceCheck:Instrumentation() {
@@ -11,6 +13,36 @@ class DeviceCheck:Instrumentation() {
    sendStatus(1,Bundle().apply{putString("stage","Reading app configuration")})
    val context=targetContext
    val config=Config.read(context)?:error("Not provisioned")
+   if(mode=="connection-errors") {
+    val original=JSONObject(config.toString())
+    val originalMode=ConnectionModes.current(context)
+    try {
+     val invalid=JSONObject(original.toString()).put("cfId","bad\nheader").put("cfSecret","test-secret")
+     check(runCatching{Config.validate(invalid)}.isFailure){"Invalid header characters accepted"}
+     startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+     runOnMainSync{context.stopService(Intent(context,InternetService::class.java))}
+     Thread.sleep(1200)
+     Config.save(context,JSONObject(original.toString()).put("token","invalid-token-for-regression-test-0000000000000000000000"))
+     ConnectionModes.set(context,"builtin")
+     runOnMainSync{context.startForegroundService(Intent(context,InternetService::class.java))}
+     val deadline=System.currentTimeMillis()+45000
+     var rejected=false
+     while(System.currentTimeMillis()<deadline){
+      val state=context.getSharedPreferences("state",0).getString("internetStatus","").orEmpty()
+      if(state.startsWith("Connection rejected")){rejected=true;break}
+      Thread.sleep(250)
+     }
+     check(rejected){"Rejected authentication was not handled"}
+     Thread.sleep(2000)
+     check(context.getSystemService(ActivityManager::class.java).getRunningServices(100).none{it.service.className==InternetService::class.java.name}){"Rejected listener did not stop"}
+     sendStatus(1,Bundle().apply{putString("stage","PASS: authentication rejection stopped the TLS listener without crashing the app")})
+    }finally{
+     runOnMainSync{context.stopService(Intent(context,InternetService::class.java))}
+     Config.save(context,original);ConnectionModes.set(context,originalMode)
+    }
+    val actual=runCatching{Tracker.api(original,"/api/device/commands");"Authenticated server API reachable"}.getOrElse{it.message?:"Server check failed"}
+    finish(Activity.RESULT_OK,Bundle().apply{putString("result","PASS: rejected-auth cleanup and invalid-header validation; original credentials restored. Current connection: "+actual)});return
+   }
    sendStatus(1,Bundle().apply{putString("stage","Checking configured server")})
    Tracker.api(config,"/api/device/commands")
    if(mode=="builtin") {

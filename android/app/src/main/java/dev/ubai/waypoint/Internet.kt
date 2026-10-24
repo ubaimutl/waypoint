@@ -8,6 +8,7 @@ import android.os.*
 import okhttp3.*
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -32,6 +33,7 @@ object ConnectionModes {
 }
 class InternetService:Service() {
  private val handler=Handler(Looper.getMainLooper())
+ private val cleanup=Executors.newSingleThreadExecutor()
  private val client=OkHttpClient.Builder().connectTimeout(15,TimeUnit.SECONDS).readTimeout(0,TimeUnit.MILLISECONDS).followRedirects(false).followSslRedirects(false).build()
  private var socket:WebSocket?=null
  private var generation=0
@@ -71,11 +73,15 @@ class InternetService:Service() {
   handler.removeCallbacks(reconnect)
   val config=runCatching{Config.read(this)}.getOrNull()?:run{status("Configure a server first.");stopSelf();return}
   generation++;val mine=generation
-  socket?.cancel();socket=null
+  socket?.let{previous->cleanup.execute{runCatching{previous.cancel()}}};socket=null
   status("Connecting…")
-  val request=Request.Builder().url(config.getString("url").trimEnd('/')+"/api/device/socket").header("Authorization","Bearer "+config.getString("token"))
-  if(config.optString("cfId").isNotEmpty()){request.header("CF-Access-Client-Id",config.getString("cfId"));request.header("CF-Access-Client-Secret",config.optString("cfSecret"))}
-  socket=client.newWebSocket(request.build(),object:WebSocketListener(){
+  val request=try {
+   Config.validate(config)
+   val builder=Request.Builder().url(config.getString("url").trimEnd('/')+"/api/device/socket").header("Authorization","Bearer "+config.getString("token"))
+   if(config.optString("cfId").isNotEmpty()){builder.header("CF-Access-Client-Id",config.getString("cfId"));builder.header("CF-Access-Client-Secret",config.optString("cfSecret"))}
+   builder.build()
+  }catch(_:Exception){terminalError="Invalid connection settings. Open Connection → Edit and check the URL and credentials.";status(terminalError!!);stopSelf();return}
+  socket=client.newWebSocket(request,object:WebSocketListener(){
    override fun onOpen(webSocket:WebSocket,response:Response){handler.post{if(mine==generation && !stopping){retrySeconds=2;status("Connected · listening for requests");Thread{runCatching{Tracker.api(config,"/api/device/identity",JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL))}}.start()}}}
    override fun onMessage(webSocket:WebSocket,text:String){handler.post{
     if(mine!=generation || stopping || ConnectionModes.current(this@InternetService)!="builtin")return@post
@@ -91,7 +97,7 @@ class InternetService:Service() {
     if(mine!=generation || stopping)return@post
     socket=null
     if(response?.code in listOf(301,302,303,307,308,401,403)) {
-     terminalError="Authentication failed. Check server and optional access proxy credentials.";status(terminalError!!);stopSelf()
+     terminalError="Connection rejected (HTTP ${response?.code}). Check the device token and, if using Cloudflare Access, its service token and Service Auth policy.";status(terminalError!!);stopSelf()
     }else retry()
    }}
   })
@@ -104,9 +110,17 @@ class InternetService:Service() {
   retrySeconds=min(retrySeconds*2,60)
  }
  override fun onDestroy() {
-  stopping=true;generation++;handler.removeCallbacksAndMessages(null);socket?.cancel();socket=null
+  stopping=true;generation++;handler.removeCallbacksAndMessages(null)
+  val previous=socket;socket=null
   networkCallback?.let{runCatching{getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it)}}
-  client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()
+  // Closing a pooled TLS socket can write close_notify. Never do it on Android's main thread.
+  cleanup.execute {
+   runCatching{previous?.cancel()}
+   runCatching{client.dispatcher.cancelAll()}
+   runCatching{client.connectionPool.evictAll()}
+   client.dispatcher.executorService.shutdown()
+  }
+  cleanup.shutdown()
   getSystemService(NotificationManager::class.java).cancel(12)
   getSharedPreferences("state",0).edit().putString("internetStatus",terminalError?:"Disconnected").apply()
   super.onDestroy()

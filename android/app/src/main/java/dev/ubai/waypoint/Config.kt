@@ -23,7 +23,7 @@ object Config {
   require(url.scheme=="https" && !url.host.isNullOrEmpty() && url.userInfo==null && (url.path.isNullOrEmpty() || url.path=="/") && url.query==null && url.fragment==null) { "Use an HTTPS server origin." }
   require(value.getString("token").length>=32) { "The device token is too short." }
   require(value.optString("cfId").isEmpty()==value.optString("cfSecret").isEmpty()){ "Provide both access proxy credentials, or leave both empty." }
-  for(field in listOf("token","cfId","cfSecret"))require(!value.optString(field).contains(Regex("[\\r\\n]"))){ "Credentials must not contain newlines." }
+  for(field in listOf("token","cfId","cfSecret"))require(value.optString(field).all{it.code in 33..126}){ "Credentials must use visible ASCII characters without spaces." }
  }
  fun save(context:Context,value:JSONObject) {
   validate(value)

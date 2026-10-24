@@ -44,3 +44,5 @@ adb shell am instrument -w -e mode builtin dev.ubai.waypoint.test/dev.ubai.waypo
 ```
 
 Open Waypoint after instrumentation, background it, turn the display off, and request a location. Built-in mode needs its foreground listener to remain active; the UI and persistent notification show its status.
+
+Android 1.3.1 regression: on the physical Android 16 device, rejected authentication stops the built-in listener without crashing the activity. TLS pool eviction/cancellation is performed on a background cleanup executor, not the Android main thread. Invalid HTTP-header characters are rejected before saving settings, and existing invalid configuration is handled as a recoverable connection error. Test mode `connection-errors` temporarily uses an invalid device token and restores the original encrypted configuration in a finally block.
