@@ -1,5 +1,6 @@
 import http from 'node:http';
 import webpush from 'web-push';
+import { createBuiltinTransport } from './builtin.mjs';
 import { createPushClient, validateKeys } from './push.mjs';
 import { randomBytes, scryptSync, timingSafeEqual, createHash, createHmac } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -39,7 +40,7 @@ const pushClient = createPushClient({
   allowedHosts: (process.env.PUSH_ALLOWED_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
 });
 let sendingPush = false;
-async function sendWake() {
+async function sendUnifiedWake() {
   const sub = db.prepare('SELECT * FROM push_subscription WHERE id=1').get();
   if (!sub) return { state: 'not_registered' };
   if (sendingPush) return { state: 'sending' };
@@ -56,9 +57,22 @@ async function sendWake() {
     return result;
   } finally { sendingPush = false; }
 }
+let builtin;
+const transportMode = () => db.prepare("SELECT value FROM settings WHERE key='transport'").get()?.value || (db.prepare('SELECT id FROM push_subscription WHERE id=1').get() ? 'unifiedpush' : 'off');
+async function sendWake() {
+  const mode=transportMode();
+  if(mode==='builtin')return builtin.wake();
+  if(mode==='unifiedpush')return sendUnifiedWake();
+  return {state:'not_registered',error:'Enable an internet connection in the Android app, or use SMS / periodic checks.'};
+}
 function pushStatus() {
+ const mode=transportMode();
+ if(mode==='builtin') {
+  const socket=builtin.status();
+  return {mode,registered:socket.connected,state:socket.connected?(socket.lastSentAt?'builtin_sent':'connected'):'offline',lastError:null,lastSentAt:socket.lastSentAt,connected:socket.connected};
+ }
  const sub = db.prepare('SELECT state,last_error,last_sent_at FROM push_subscription WHERE id=1').get();
- return {registered:!!sub && sub.state!=='expired',state:sub?.state || 'not_registered',lastError:sub?.last_error || null,lastSentAt:sub?.last_sent_at || null};
+ return {mode,registered:mode==='unifiedpush' && !!sub && sub.state!=='expired',state:mode==='off'?'not_registered':sub?.state || 'not_registered',lastError:sub?.last_error || null,lastSentAt:sub?.last_sent_at || null,connected:false};
 }
 const fakeReport = { lat: 52.5208, lng: 13.4095, accuracy: 24, battery: 78, charging: 0, recorded_at: now(), received_at: now() };
 function checkPassword(value) {
@@ -134,6 +148,13 @@ const server = http.createServer(async (req, res) => {
       if (!db.prepare("SELECT id FROM commands WHERE status='queued'").get()) return json(res,409,{error:'No pending request.'});
       return json(res,200,await sendWake());
     }
+    if (req.method === 'POST' && route === '/api/device/transport') {
+      const input=await body(req);
+      if(!['builtin','unifiedpush','off'].includes(input.mode))return json(res,400,{error:'Invalid internet mode'});
+      db.prepare("INSERT OR REPLACE INTO settings VALUES ('transport',?)").run(input.mode);
+      if(input.mode!=='builtin')builtin.disconnect();
+      return json(res,200,{ok:true});
+    }
     if (req.method === 'GET' && route === '/api/device/push-info') return json(res,200,{publicKey:vapidKeys.publicKey});
     if (req.method === 'POST' && route === '/api/device/push-subscription') {
       const input = await body(req);
@@ -188,7 +209,12 @@ const server = http.createServer(async (req, res) => {
     json(res, 404, { error: 'Not found' });
   } catch (error) { json(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong. Please try again.' }); }
 });
+builtin=createBuiltinTransport(server,{
+ authenticate:req=>!demo && constantEqual(req.headers.authorization || '',`Bearer ${deviceToken}`) && (!req.headers.origin || req.headers.origin===origin),
+ onConnect:()=>db.prepare("INSERT OR REPLACE INTO settings VALUES ('transport','builtin')").run(),
+ hasPending:()=>{expireCommands();return !!db.prepare("SELECT id FROM commands WHERE status='queued'").get();}
+});
 server.requestTimeout = 15000;
 server.headersTimeout = 10000;
 server.listen(Number(process.env.PORT || 3000), process.env.HOST || '0.0.0.0', () => console.log(`Waypoint listening on port ${process.env.PORT || 3000}${demo ? ' (demo mode)' : ''}`));
-for (const signal of ['SIGINT','SIGTERM']) process.on(signal, () => server.close(() => { db.close(); process.exit(0); }));
+for (const signal of ['SIGINT','SIGTERM']) process.on(signal, () => {builtin.shutdown();server.close(() => { db.close(); process.exit(0); });});

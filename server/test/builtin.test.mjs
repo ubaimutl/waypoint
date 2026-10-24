@@ -1,0 +1,26 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import {once} from 'node:events';
+import WebSocket from 'ws';
+import {createBuiltinTransport} from '../builtin.mjs';
+test('built-in transport authenticates and replays pending requests on reconnect',async t=>{
+ const server=http.createServer();let pending=false;
+ const transport=createBuiltinTransport(server,{authenticate:r=>r.headers.authorization==='Bearer test-secret',hasPending:()=>pending});
+ server.listen(0,'127.0.0.1');await once(server,'listening');
+ t.after(async()=>{transport.shutdown();await new Promise(resolve=>server.close(resolve));});
+ const url=`ws://127.0.0.1:${server.address().port}/api/device/socket`;
+ const denied=new WebSocket(url);denied.on('error',()=>{});
+ const [,response]=await once(denied,'unexpected-response');assert.equal(response.statusCode,401);response.resume();denied.terminate();
+ assert.equal(transport.wake().state,'offline');
+ const connect=()=>new WebSocket(url,{headers:{Authorization:'Bearer test-secret'}});
+ const client=connect();const ready=once(client,'message');await once(client,'open');assert.deepEqual(JSON.parse((await ready)[0]),{type:'ready',version:1});
+ assert.equal(transport.status().connected,true);
+ const wake=once(client,'message');assert.equal(transport.wake().state,'builtin_sent');assert.deepEqual(JSON.parse((await wake)[0]),{type:'wake',version:1});
+ const closed=once(client,'close');client.close();await closed;
+ pending=true;const next=connect();const messages=[];
+ await new Promise((resolve,reject)=>{next.on('error',reject);next.on('message',data=>{messages.push(JSON.parse(data));if(messages.length===2)resolve();});});
+ assert.deepEqual(messages,[{type:'ready',version:1},{type:'wake',version:1}]);
+ const replaced=once(next,'close');const replacement=connect();await once(replacement,'open');assert.equal((await replaced)[0],4001);
+ const disconnected=once(replacement,'close');transport.disconnect();await disconnected;assert.equal(transport.status().connected,false);
+});

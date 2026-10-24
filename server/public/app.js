@@ -79,9 +79,9 @@ async function load() {
     const pending = data.commands.some(command => command.status === 'queued');
     $('pending').hidden = !pending; $('retry-push').hidden = !pending || !data.push?.registered; $('wake-sms').hidden = !pending || data.demo; $('locate').disabled = pending;
     $('locate').innerHTML = icon(pending ? 'clock' : 'target') + (pending ? 'Request queued' : 'Locate phone');
-    const pushLabels = {not_registered:'Internet push not registered',registered:'Internet push ready',sending:'Sending internet push…',sent:'Push accepted by provider',failed:'Internet push failed',expired:'Push registration expired',rate_limited:'Push rate-limited; retry shortly'};
+    const pushLabels = {not_registered:'Internet connection not enabled',connected:'Built-in connection online',builtin_sent:'Built-in wake-up sent',offline:'Built-in connection offline',registered:'Internet push ready',sending:'Sending internet push…',sent:'Push accepted by provider',failed:'Internet push failed',expired:'Push registration expired',rate_limited:'Push rate-limited; retry shortly'};
     $('push-state').textContent = pushLabels[data.push?.state] || 'Internet push not registered';
-    $('push-state').title = data.push?.lastError || 'Provider acceptance does not confirm delivery to the phone.';
+    $('push-state').title = data.push?.lastError || 'A wake-up does not confirm completion. A fresh phone report completes the request.';
     drawMap(latest);
     const events = data.reports.map(report => ({ title:data.demo ? 'Sample location check-in' : 'Location received', detail:`${report.lat.toFixed(5)}°, ${report.lng.toFixed(5)}° · ${report.battery}% battery`, date:report.received_at, glyph:'pin' }));
     const labels = {queued:['Location requested','Waiting for the phone to fetch this request.'],completed:['Location request completed','The phone returned a fresh location.'],cancelled:['Request cancelled','This request is no longer active.'],expired:['Request expired','The phone did not respond within 30 minutes.']};
@@ -108,7 +108,7 @@ $('refresh').addEventListener('click', async () => { $('refresh').disabled = tru
 $('overview-nav').addEventListener('click', () => window.scrollTo({top:0,behavior:'smooth'}));
 $('locate').addEventListener('click', async () => {
   $('locate').disabled = true;
-  try { const result = await api('/api/locate', {}); await load(); toast(result.push?.state === 'sent' ? 'Push accepted by provider. Waiting for phone.' : result.push?.error || 'Request queued. Register internet push in the app, or use SMS / periodic checks.'); }
+  try { const result = await api('/api/locate', {}); await load(); toast(result.push?.state === 'builtin_sent' ? 'Wake-up sent over built-in connection. Waiting for phone.' : result.push?.state === 'sent' ? 'Push accepted by provider. Waiting for phone.' : result.push?.error || 'Request queued. Enable an internet connection in the app, or use SMS / periodic checks.'); }
   catch(error) { toast(error.message); $('locate').disabled = false; }
 });
 $('cancel').addEventListener('click', async () => { try { await api('/api/cancel', {}); await load(); toast('Location request cancelled.'); } catch(error) { toast(error.message); } });
@@ -121,4 +121,4 @@ $('copy-coordinates').addEventListener('click', async () => { if (!latest) retur
 
 $('wake-sms').addEventListener('click', async () => { try { const result = await api('/api/wake-message', {}); await navigator.clipboard.writeText(result.message); toast('Signed SMS copied. Send it to this phone from another device within 10 minutes.'); } catch (error) { toast(error.message); } });
 
-$('retry-push').addEventListener('click', async () => { $('retry-push').disabled=true; try { const result=await api('/api/retry-push',{}); await load(); toast(result.state==='sent' ? 'Push accepted by provider. Waiting for phone.' : result.error || 'Push already sent recently. Wait 10 seconds.'); } catch(error) {toast(error.message);} finally {$('retry-push').disabled=false;} });
+$('retry-push').addEventListener('click', async () => { $('retry-push').disabled=true; try { const result=await api('/api/retry-push',{}); await load(); toast(result.state==='builtin_sent' ? 'Wake-up sent over built-in connection. Waiting for phone.' : result.state==='sent' ? 'Push accepted by provider. Waiting for phone.' : result.error || 'Push already sent recently. Wait 10 seconds.'); } catch(error) {toast(error.message);} finally {$('retry-push').disabled=false;} });

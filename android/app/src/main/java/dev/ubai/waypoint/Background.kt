@@ -18,7 +18,7 @@ class CheckJob:JobService() {
  override fun onStopJob(p:JobParameters):Boolean {cancelled.set(true);return true}
 }
 class BootReceiver:BroadcastReceiver() {
- override fun onReceive(c:Context,i:Intent) {if(i.action==Intent.ACTION_BOOT_COMPLETED || i.action==Intent.ACTION_MY_PACKAGE_REPLACED)Scheduling.apply(c)}
+ override fun onReceive(c:Context,i:Intent) {if(i.action==Intent.ACTION_BOOT_COMPLETED || i.action==Intent.ACTION_MY_PACKAGE_REPLACED){Scheduling.apply(c);if(ConnectionModes.current(c)=="builtin")runCatching{c.startForegroundService(Intent(c,InternetService::class.java))}.onFailure{Config.status(c,"Open Waypoint to restart the built-in internet connection.")}}}
 }
 class SmsReceiver:BroadcastReceiver() {
  override fun onReceive(c:Context,i:Intent) {

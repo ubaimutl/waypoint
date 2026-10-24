@@ -18,6 +18,7 @@ object PushSetup {
  fun instance(config:JSONObject):String = "waypoint-"+MessageDigest.getInstance("SHA-256").digest((config.getString("url")+config.getString("token")).toByteArray()).take(8).joinToString(""){"%02x".format(it)}
  fun state(context:Context,text:String) {context.getSharedPreferences("state",0).edit().putString("pushStatus",text).apply()}
  fun register(activity:Activity) {
+  ConnectionModes.set(activity,"unifiedpush");activity.stopService(Intent(activity,InternetService::class.java));ConnectionModes.notifyServer(activity,"unifiedpush")
   Thread {
    try {
     val config=Config.read(activity)?:error("Configure your server first.")
@@ -41,11 +42,13 @@ object PushSetup {
   }.start()
  }
  fun uploadSaved(context:Context) {
+  if(ConnectionModes.current(context)!="unifiedpush")return
   if(!uploading.compareAndSet(false,true))return
   Thread {
    try {
     val config=Config.read(context)?:return@Thread
     val saved=config.optJSONObject("pushSubscription")?:return@Thread
+    Tracker.api(config,"/api/device/transport",JSONObject().put("mode","unifiedpush"))
     Tracker.api(config,"/api/device/push-subscription",saved)
     state(context,"Internet push registered")
    }catch(e:Exception){state(context,"Push registration not saved: "+(e.message?:"connection failed"))}
@@ -61,7 +64,7 @@ object PushSetup {
  }
 }
 class PushHandler:PushService() {
- private fun current(instance:String)=runCatching{Config.read(this)?.let{PushSetup.instance(it)==instance && it.optBoolean("pushEnabled",true)}==true}.getOrDefault(false)
+ private fun current(instance:String)=runCatching{Config.read(this)?.let{PushSetup.instance(it)==instance && it.optBoolean("pushEnabled",true) && ConnectionModes.current(this)=="unifiedpush"}==true}.getOrDefault(false)
  override fun onNewEndpoint(endpoint:PushEndpoint,instance:String) {
   if(!current(instance))return
   val keys=endpoint.pubKeySet?:run{PushSetup.state(this,"Distributor did not provide encryption keys. Update it and register again.");return}

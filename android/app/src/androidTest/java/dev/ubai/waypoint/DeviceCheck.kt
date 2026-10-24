@@ -13,7 +13,23 @@ class DeviceCheck:Instrumentation() {
    val config=Config.read(context)?:error("Not provisioned")
    sendStatus(1,Bundle().apply{putString("stage","Checking configured server")})
    Tracker.api(config,"/api/device/commands")
+   if(mode=="builtin") {
+    startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    runOnMainSync{ConnectionModes.startBuiltin(context)}
+    val deadline=System.currentTimeMillis()+30000
+    while(System.currentTimeMillis()<deadline){
+     if(context.getSharedPreferences("state",0).getString("internetStatus","")!!.startsWith("Connected")){
+      finish(Activity.RESULT_OK,Bundle().apply{putString("result","PASS: built-in authenticated connection established.")});return
+     }
+     Thread.sleep(500)
+    }
+    error("Built-in connection did not connect")
+   }
    if(mode=="register-push") {
+    config.put("pushEnabled",true);Config.save(context,config)
+    ConnectionModes.set(context,"unifiedpush")
+    context.stopService(Intent(context,InternetService::class.java))
+    ConnectionModes.notifyServer(context,"unifiedpush")
     sendStatus(1,Bundle().apply{putString("stage","Fetching VAPID key")})
     val key=Tracker.api(config,"/api/device/push-info").getString("publicKey")
     sendStatus(1,Bundle().apply{putString("stage","Selecting push distributor")})

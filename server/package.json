@@ -1,6 +1,6 @@
 {
   "name": "waypoint-phone-dashboard",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,6 +15,7 @@
   "dependencies": {
     "ipaddr.js": "2.2.0",
     "leaflet": "1.9.4",
-    "web-push": "3.6.7"
+    "web-push": "3.6.7",
+    "ws": "8.22.0"
   }
 }

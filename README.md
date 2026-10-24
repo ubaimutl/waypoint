@@ -1,12 +1,12 @@
 # Waypoint
 
-Self-hosted Android device locator with a web dashboard. Uses Google-free Android location APIs and UnifiedPush for internet wake-up. SMS and optional scheduled checks provide alternative transports.
+Self-hosted Android device locator with a web dashboard. Uses Google-free Android location APIs with a choice of built-in internet connection or UnifiedPush. SMS and optional scheduled checks provide alternative transports.
 
 ## How it works
 
 1. Press **Locate phone** in the dashboard.
-2. The server queues a command and sends an encrypted Web Push wake-up.
-3. Your chosen UnifiedPush distributor wakes Waypoint.
+2. The server queues a command and sends a wake-up over your selected transport.
+3. The built-in authenticated WebSocket connection receives it directly, or your UnifiedPush distributor wakes Waypoint.
 4. Waypoint authenticates to your server, fetches the pending command, acquires a location, and uploads the result.
 5. The location service stops after completion or a bounded attempt.
 
@@ -17,7 +17,7 @@ This transport design follows the approach documented by [FMD](https://fmd-foss.
 ## Requirements
 
 - Android 12 or newer; location enabled.
-- A UnifiedPush distributor such as **ntfy** or **Sunup** for internet wake-up. It must be allowed to run in the background.
+- Built-in mode needs no extra app. UnifiedPush mode optionally uses a distributor such as **ntfy** or **Sunup**. Allow background activity for the selected listener.
 - Docker / Docker Compose on a server, with a persistent volume and HTTPS reverse proxy.
 - One device and one dashboard account per server instance. Deploy separate instances for separate devices.
 
@@ -63,15 +63,21 @@ gradle -p android assembleDebug
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-1. Open Waypoint → **Connection settings**.
+1. Open Waypoint → **Connection** card → **Edit**.
 2. Enter your server’s HTTPS origin and device token from `credentials.txt`.
 3. Grant precise location, background location (**Allow all the time**), and notification permissions.
-4. Install/configure a UnifiedPush distributor, allow background activity for **both** apps in Android/manufacturer battery settings, then choose **Register internet push** in Waypoint.
-5. Confirm the dashboard shows push registration. Background the app, press **Locate phone**, and check that a fresh report arrives.
+4. Choose **Built-in connection** and connect, or install/configure a distributor and choose **UnifiedPush distributor**. Allow background activity for Waypoint, and also the distributor when using UnifiedPush.
+5. Confirm the connection status. Background the app, press **Locate phone**, and check that a fresh report arrives.
 
 Connection credentials and saved subscription data are encrypted with Android Keystore. They are not embedded in the APK. A new installation has no predefined server, account, or push registration.
 
 Incoming SMS permission is needed only for the SMS fallback. The app does not need SMS history, SMS sending, contacts, camera, microphone, or device administrator access.
+
+### Connection options
+
+**Built-in connection** keeps a TLS WebSocket open to your own server, with a persistent listening notification. No distributor or push provider is required. It reconnects with backoff; queued requests are sent on reconnect while still valid. Your reverse proxy must support WebSocket upgrades at `/api/device/socket` (Caddy and Dokploy/Traefik normally handle this automatically). Android battery controls and network sleep can still delay delivery; a persistent service does not guarantee deep-Doze delivery.
+
+**UnifiedPush distributor** shares the distributor connection with other compatible apps. Waypoint runs its location service only when needed. Switching modes stops the previous listener. **Internet off** leaves SMS and optional scheduled checks available.
 
 ### Push provider selection
 
@@ -89,7 +95,7 @@ A provider accepting a push is shown as **Push accepted by provider**, not as de
 
 ## Limits and privacy
 
-An offline or powered-off phone cannot report over the internet. Android and manufacturer battery controls may delay or block background execution. Push requires a background distributor connection; there is no measured battery guarantee. Indoor positioning may fail. Location requests stop after 65 seconds rather than keeping GPS running indefinitely. Force-stopping the app disables its background receivers until it is reopened.
+An offline or powered-off phone cannot report over the internet. Android and manufacturer battery controls may delay or block background execution. Internet delivery requires either the built-in background connection or a distributor connection; there is no measured battery guarantee. Indoor positioning may fail. Location requests stop after 65 seconds rather than keeping GPS running indefinitely. Force-stopping the app disables its background receivers until it is reopened.
 
 The dashboard fetches map tiles from OpenStreetMap. The tile provider sees your browser’s IP and viewed map area. Replace the tile source/CSP if you require a privately hosted map. There is no analytics or automatic reverse geocoding.
 

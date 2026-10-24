@@ -10,6 +10,8 @@ The dashboard uses a single scrypt-hashed password, secure HttpOnly/SameSite coo
 
 All device routes require `Authorization: Bearer <DEVICE_TOKEN>`.
 
+- `GET /api/device/socket`: authenticated WebSocket upgrade for built-in mode; receives ready/wake messages without commands or credentials. Pending requests are replayed on reconnect. One active socket per instance.
+- `POST /api/device/transport`: `{mode:"builtin"|"unifiedpush"|"off"}` selects the wake transport.
 - `GET /api/device/commands`: returns `{command:null}` or a pending `{id,created_at,type:"locate"}`.
 - `POST /api/device/report`: `{lat,lng,accuracy,battery,charging,recorded_at,command_id?}`. Accuracy is meters; battery is integer percentage. Command results must be fresh and refer to a pending command. Unknown/completed/cancelled/expired commands return 409.
 - `GET /api/device/push-info`: returns the server’s VAPID public key.
@@ -20,7 +22,7 @@ All device routes require `Authorization: Bearer <DEVICE_TOKEN>`.
 
 Authenticated browser writes require an exact matching `Origin` header.
 
-- `POST /api/locate`: queues one request, sends an encrypted wake-up when registered, and returns command plus push state. An existing pending request is reused. Commands expire after 30 minutes.
+- `POST /api/locate`: queues one request, sends a wake-up through the selected built-in or UnifiedPush transport, and returns command plus push state. An existing pending request is reused. Commands expire after 30 minutes.
 - `POST /api/retry-push`: retries the pending wake-up; sends are limited to one per 10 seconds.
 - `POST /api/cancel`: cancels pending requests.
 - `POST /api/wake-message`: creates a short-lived, signed SMS for the pending request.

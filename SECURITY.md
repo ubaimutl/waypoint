@@ -13,3 +13,5 @@ The Android app stores credentials encrypted with a Keystore key and disables An
 The server stores location history in its local SQLite database without application-layer encryption. Protect disk storage and backups. Anyone with host-level access can read reports and credentials.
 
 Use a private security advisory on the repository to report vulnerabilities rather than putting credentials or private location data in an issue.
+
+The built-in WebSocket requires the device bearer token in an HTTP header, never in a query URL. It carries only a wake signal; commands are fetched separately through the authenticated API. Browser-origin upgrades must match the configured application origin. Configure your reverse proxy for WebSocket upgrades and HTTPS.

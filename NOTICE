@@ -5,6 +5,8 @@ Third-party dependencies retain their own licenses:
 - Leaflet: BSD-2-Clause, https://leafletjs.com/
 - web-push: MIT, https://github.com/web-push-libs/web-push
 - ipaddr.js: MIT, https://github.com/whitequark/ipaddr.js
+- OkHttp: Apache-2.0, https://github.com/square/okhttp
+- ws: MIT, https://github.com/websockets/ws
 - Kotlin and transitive Android dependencies: see their distributed licenses.
 
 Map data and tiles: OpenStreetMap contributors; attribution is displayed in the map. Follow the tile usage policy at https://operations.osmfoundation.org/policies/tiles/.

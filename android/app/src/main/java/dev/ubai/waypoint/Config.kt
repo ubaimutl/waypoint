@@ -18,10 +18,15 @@ object Config {
   if(store.containsAlias(ALIAS)) return store.getKey(ALIAS,null) as SecretKey
   return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore").apply { init(KeyGenParameterSpec.Builder(ALIAS,KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build()) }.generateKey()
  }
- fun save(context:Context, value:JSONObject) {
+ fun validate(value:JSONObject) {
   val url=java.net.URI(value.getString("url"))
   require(url.scheme=="https" && !url.host.isNullOrEmpty() && url.userInfo==null && (url.path.isNullOrEmpty() || url.path=="/") && url.query==null && url.fragment==null) { "Use an HTTPS server origin." }
   require(value.getString("token").length>=32) { "The device token is too short." }
+  require(value.optString("cfId").isEmpty()==value.optString("cfSecret").isEmpty()){ "Provide both access proxy credentials, or leave both empty." }
+  for(field in listOf("token","cfId","cfSecret"))require(!value.optString(field).contains(Regex("[\\r\\n]"))){ "Credentials must not contain newlines." }
+ }
+ fun save(context:Context,value:JSONObject) {
+  validate(value)
   val cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key())
   val bytes=cipher.doFinal(value.toString().toByteArray())
   context.getSharedPreferences("secure",0).edit().putString("iv",Base64.encodeToString(cipher.iv,Base64.NO_WRAP)).putString("config",Base64.encodeToString(bytes,Base64.NO_WRAP)).commit()

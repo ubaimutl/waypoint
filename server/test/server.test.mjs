@@ -41,6 +41,14 @@ test('production authentication, command lifecycle, and location storage', async
       assert.equal((await request('/api/device/commands',{auth:true})).status,401);
       assert.equal((await request('/api/device/commands',{device:true})).status,200);
     });
+    await t.test('transport selection requires device auth and validates modes',async()=>{
+      assert.equal((await request('/api/device/transport',{auth:true,data:{mode:'builtin'}})).status,401);
+      assert.equal((await request('/api/device/transport',{device:true,data:{mode:'other'}})).status,400);
+      for(const mode of ['builtin','unifiedpush','off']){
+        assert.equal((await request('/api/device/transport',{device:true,data:{mode}})).status,200);
+        const dashboard=await (await request('/api/dashboard',{auth:true})).json();assert.equal(dashboard.push.mode,mode);
+      }
+    });
     await t.test('push registration requires device auth and rejects unsafe endpoints',async()=>{
       assert.equal((await request('/api/device/push-info')).status,401);
       const info=await (await request('/api/device/push-info',{device:true})).json();assert.match(info.publicKey,/^[A-Za-z0-9_-]{87}$/);assert.equal(Object.keys(info).length,1);
