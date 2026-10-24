@@ -8,10 +8,12 @@ Validated during development:
 - Android: APK and on-device test APK compile against SDK 36.
 - Physical Android 16 device + ntfy: registration with encryption keys and VAPID saved to the real server.
 - Internet-only request with Waypoint backgrounded and its cached process killed: push woke the app, a fresh location report arrived, and the queued command completed.
+- Screen-off test after setting manufacturer Auto-start, Secondary launch, and Background running to Allowed for both apps: fresh report completed while the phone remained in its display-dozing state; no Waypoint location service remained running afterward.
+- GitHub Actions: server tests and Android APK/test-APK build passed.
 
 Limitations of these checks:
 
-- Screen-off delivery was delayed on the test device. Both Android battery exemptions and manufacturer-specific background/auto-start settings matter. A successful awake/background test is not a guarantee for a sleeping device.
+- Initial screen-off delivery was delayed with manufacturer controls set to Automatic. Explicitly allowing both applications resolved the observed test. These settings and results are device-specific; a short successful test does not guarantee multi-day standby reliability.
 - Deep Doze, reboot recovery, unstable networks, and multi-day standby battery use have not been comprehensively validated.
 - The physical distributor test used ntfy. Other compatible distributors are supported through the standard connector but require their own device validation.
 - No measured battery-drain percentage is claimed.
