@@ -1,0 +1,10 @@
+Waypoint implements its own device locator protocol. The wake/fetch/report transport architecture is informed by FMD documentation (https://fmd-foss.org/docs/fmd-android/push/). No FMD source is included.
+
+Third-party dependencies retain their own licenses:
+- UnifiedPush Android connector: Apache-2.0, https://codeberg.org/UnifiedPush/android-connector
+- Leaflet: BSD-2-Clause, https://leafletjs.com/
+- web-push: MIT, https://github.com/web-push-libs/web-push
+- ipaddr.js: MIT, https://github.com/whitequark/ipaddr.js
+- Kotlin and transitive Android dependencies: see their distributed licenses.
+
+Map data and tiles: OpenStreetMap contributors; attribution is displayed in the map. Follow the tile usage policy at https://operations.osmfoundation.org/policies/tiles/.

@@ -1,0 +1,20 @@
+services:
+  waypoint:
+    build:
+      context: ./server
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_ORIGIN: ${APP_ORIGIN:?Run node scripts/setup.mjs}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?Run node scripts/setup.mjs}
+      DEVICE_TOKEN: ${DEVICE_TOKEN:?Run node scripts/setup.mjs}
+      DEVICE_NAME: ${DEVICE_NAME:-My phone}
+      PUSH_ALLOWED_HOSTS: ${PUSH_ALLOWED_HOSTS:-}
+      PUSH_PRIVATE_HOSTS: ${PUSH_PRIVATE_HOSTS:-}
+      COOKIE_SECURE: "true"
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${HTTP_PORT:-8080}:3000"
+    volumes:
+      - waypoint-data:/app/data
+volumes:
+  waypoint-data:

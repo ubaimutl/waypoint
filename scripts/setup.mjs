@@ -1,0 +1,22 @@
+import { randomBytes, scryptSync } from 'node:crypto';
+import { existsSync, writeFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline/promises';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+if (existsSync(resolve(root,'.env')) || existsSync(resolve(root,'credentials.txt'))) throw new Error('Configuration already exists. Edit .env or move the existing files first.');
+const flag=name=>{const i=process.argv.indexOf(name);return i>=0?process.argv[i+1]:undefined;};
+let value=flag('--origin');
+if(!value) {const prompt=createInterface({input:process.stdin,output:process.stdout});value=await prompt.question('Public HTTPS origin (for example https://locator.example.com): ');prompt.close();}
+const parsed=new URL(value);
+if(parsed.protocol!=='https:' || parsed.username || parsed.password || parsed.search || parsed.hash || !['','/'].includes(parsed.pathname)) throw new Error('Use an HTTPS origin without a path, credentials, query, or fragment.');
+const origin=parsed.origin;
+const name=flag('--device') || 'My phone';
+if(/[\r\n]/.test(name) || name.length>80)throw new Error('Use a device name of 1–80 characters without newlines.');
+const password=randomBytes(24).toString('base64url');
+const token=randomBytes(32).toString('hex');
+const salt=randomBytes(16).toString('hex');
+const hash=`${salt}:${scryptSync(password,salt,64).toString('hex')}`;
+writeFileSync(resolve(root,'.env'),`APP_ORIGIN=${origin}\nADMIN_PASSWORD_HASH=${hash}\nDEVICE_TOKEN=${token}\nDEVICE_NAME=${JSON.stringify(name)}\nBIND_ADDRESS=127.0.0.1\nHTTP_PORT=8080\nPUSH_ALLOWED_HOSTS=\nPUSH_PRIVATE_HOSTS=\n`,{mode:0o600,flag:'wx'});
+writeFileSync(resolve(root,'credentials.txt'),`Dashboard: ${origin}\nDashboard password: ${password}\nAndroid server URL: ${origin}\nAndroid device token: ${token}\n\nStore this file privately. Do not share it or commit it.\n`,{mode:0o600,flag:'wx'});
+console.log('Created .env and credentials.txt (private). Run docker compose up -d --build, and configure HTTPS with your reverse proxy.');

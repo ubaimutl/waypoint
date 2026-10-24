@@ -1,0 +1,20 @@
+{
+  "name": "waypoint-phone-dashboard",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "DEMO_MODE=true COOKIE_SECURE=false node server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "hash-password": "node scripts/hash-password.mjs"
+  },
+  "dependencies": {
+    "ipaddr.js": "2.2.0",
+    "leaflet": "1.9.4",
+    "web-push": "3.6.7"
+  }
+}
