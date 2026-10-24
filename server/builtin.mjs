@@ -21,6 +21,13 @@ export function createBuiltinTransport(server,{authenticate,onConnect=()=>{},onC
   connections.get(id)?.close(4001,'Replaced by a new connection');connections.set(id,ws);
   history.set(id,{lastSentAt:null,lastConnectedAt:new Date().toISOString()});ws.alive=true;
   ws.on('pong',()=>{ws.alive=true;onContact(id);});ws.on('error',()=>{});
+  // Application-level round trips prove the origin is reachable through a tunnel, not just its edge.
+  ws.on('message',(raw,binary)=>{
+   if(binary || connections.get(id)!==ws || ws.readyState!==WebSocket.OPEN)return;
+   let data;try{data=JSON.parse(raw.toString());}catch{return;}
+   if(data?.type!=='heartbeat' || data.version!==1 || typeof data.nonce!=='string' || !/^[a-zA-Z0-9-]{1,80}$/.test(data.nonce))return;
+   ws.alive=true;onContact(id);ws.send(JSON.stringify({type:'heartbeat_ack',version:1,nonce:data.nonce}));
+  });
   ws.on('close',()=>{if(connections.get(id)===ws)connections.delete(id);});
   onConnect(id);ws.send(JSON.stringify({type:'ready',version:1}));if(hasPending(id))wake(id);
  });

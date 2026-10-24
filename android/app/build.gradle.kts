@@ -2,7 +2,7 @@ plugins { id("com.android.application") }
 android {
  namespace = "dev.ubai.waypoint"
  compileSdk = 36
- defaultConfig { applicationId = "dev.ubai.waypoint"; minSdk = 31; targetSdk = 36; versionCode = 5; versionName = "1.3.1"; testInstrumentationRunner = "dev.ubai.waypoint.DeviceCheck" }
+ defaultConfig { applicationId = "dev.ubai.waypoint"; minSdk = 31; targetSdk = 36; versionCode = 6; versionName = "1.3.2"; testInstrumentationRunner = "dev.ubai.waypoint.DeviceCheck" }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  buildTypes { release { isMinifyEnabled = false } }
 }

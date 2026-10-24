@@ -16,6 +16,10 @@ test('built-in transport authenticates and replays pending requests on reconnect
  const connect=()=>new WebSocket(url,{headers:{Authorization:'Bearer test-secret'}});
  const client=connect();const ready=once(client,'message');await once(client,'open');assert.deepEqual(JSON.parse((await ready)[0]),{type:'ready',version:1});
  assert.equal(transport.status().connected,true);
+ const heartbeatAck=once(client,'message');
+ client.send('{invalid JSON');client.send(JSON.stringify({type:'heartbeat',version:1,nonce:'bad nonce'}));
+ client.send(JSON.stringify({type:'heartbeat',version:1,nonce:'test-nonce-123'}));
+ assert.deepEqual(JSON.parse((await heartbeatAck)[0]),{type:'heartbeat_ack',version:1,nonce:'test-nonce-123'});
  const wake=once(client,'message');assert.equal(transport.wake().state,'builtin_sent');assert.deepEqual(JSON.parse((await wake)[0]),{type:'wake',version:1});
  const closed=once(client,'close');client.close();await closed;
  pending=true;const next=connect();const messages=[];

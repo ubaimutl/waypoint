@@ -85,13 +85,13 @@ async function load() {
     $('coordinates').textContent = latest ? `${latest.lat.toFixed(5)}°, ${latest.lng.toFixed(5)}°` : 'No coordinates reported';
     $('copy-coordinates').disabled = !latest;
     $('battery').textContent = latest ? `${latest.battery}%${latest.charging ? ' · charging' : ''}` : '—';
-    $('last-contact').textContent = latest ? relative(latest.received_at) : '—';
+    $('last-contact').textContent = currentDevice?.last_seen ? relative(currentDevice.last_seen) : latest ? relative(latest.received_at) : '—';
     $('accuracy').textContent = latest ? `± ${Math.round(latest.accuracy)} m` : '—';
     $('device-state').lastChild.textContent = data.demo ? ' Sample device' : latest ? ' Last report received' : ' Not connected yet';
     const pending = data.commands.some(command => command.status === 'queued');
     $('pending').hidden = !pending; $('retry-push').hidden = !pending || !data.push?.registered; $('wake-sms').hidden = !pending || data.demo; $('locate').disabled = pending || !currentDevice || data.demo;
     $('locate').innerHTML = icon(pending ? 'clock' : 'target') + (pending ? 'Request queued' : 'Locate phone');
-    const pushLabels = {not_registered:'Internet connection not enabled',connected:'Built-in connection online',builtin_sent:'Built-in wake-up sent',offline:'Built-in connection offline',registered:'Internet push ready',sending:'Sending internet push…',sent:'Push accepted by provider',failed:'Internet push failed',expired:'Push registration expired',rate_limited:'Push rate-limited; retry shortly'};
+    const pushLabels = {not_registered:'Internet connection not enabled',connected:'Built-in connection online',builtin_sent:'Built-in connection online · wake-up sent',offline:'Built-in connection offline',registered:'Internet push ready',sending:'Sending internet push…',sent:'Push accepted by provider',failed:'Internet push failed',expired:'Push registration expired',rate_limited:'Push rate-limited; retry shortly'};
     $('push-state').textContent = pushLabels[data.push?.state] || 'Internet push not registered';
     $('push-state').title = data.push?.lastError || 'A wake-up does not confirm completion. A fresh phone report completes the request.';
     drawMap(latest);

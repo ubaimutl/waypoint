@@ -165,7 +165,11 @@ class MainActivity:Activity() {
   val config=runCatching{Config.read(this)}.getOrNull()
   serverValue.text=config?.optString("url")?:"No server configured"
   connectionStatus.text=when(ConnectionModes.current(this)){
-   "builtin"->"Built-in · "+state.getString("internetStatus","Not connected")
+   "builtin"->{
+    val status=state.getString("internetStatus","Not connected").orEmpty()
+    val last=state.getLong("internetVerifiedAt",0)
+    "Built-in · "+if(status.startsWith("Connected") && System.currentTimeMillis()-last>90000)"Connection check overdue" else status
+   }
    "unifiedpush"->"UnifiedPush · "+state.getString("pushStatus","Not registered")
    else->"Internet connection off"
   }
@@ -191,7 +195,7 @@ class MainActivity:Activity() {
   try{Config.status(this,"Starting location request…");startForegroundService(Intent(this,LocateService::class.java).putExtra("manual",manual))}
   catch(_:Exception){Config.status(this,"Could not start location. Check permissions.")}
  }
- override fun onResume(){super.onResume();handler.post(refresh)}
+ override fun onResume(){super.onResume();if(ConnectionModes.current(this)=="builtin")runCatching{startForegroundService(Intent(this,InternetService::class.java).putExtra("ensure",true))};handler.post(refresh)}
  override fun onPause(){handler.removeCallbacks(refresh);super.onPause()}
  private fun connectionDialog() {
   val saved=runCatching{Config.read(this)}.getOrNull()?:JSONObject()

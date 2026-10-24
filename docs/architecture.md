@@ -43,3 +43,5 @@ RFC8291 / aes128gcm payload: `{"type":"wake","version":1}`. VAPID signs the push
 Subscription and VAPID data persist in SQLite. The server may read uploaded locations. This architecture does not provide FMD’s complete feature set or end-to-end location encryption.
 
 MFA login accepts password and a TOTP/recovery code. A correct password without a second factor returns `requiresTwoFactor:true` and no session cookie. Recovery codes are consumed once. Authenticator time steps are tracked to reject replay, including concurrent verification. SQLite scopes reports, commands and subscriptions by device ID. Existing single-device data migrates to the bootstrap device without changing its token.
+
+The built-in client sends `{type:"heartbeat",version:1,nonce}` over its authenticated socket. The origin echoes `{type:"heartbeat_ack",version:1,nonce}` only for a valid nonce on the current device socket. The phone marks the listener connected only after a matching acknowledgement, and reconnects when its acknowledgement deadline expires. This distinguishes origin reachability from a TCP/WebSocket connection to a proxy. Heartbeats never request GPS.

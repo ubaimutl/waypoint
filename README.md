@@ -75,7 +75,7 @@ Incoming SMS permission is needed only for the SMS fallback. The app does not ne
 
 ### Connection options
 
-**Built-in connection** keeps a TLS WebSocket open to your own server, with a persistent listening notification. No distributor or push provider is required. It reconnects with backoff; queued requests are sent on reconnect while still valid. Your reverse proxy must support WebSocket upgrades at `/api/device/socket` (Caddy and Dokploy/Traefik normally handle this automatically). Android battery controls and network sleep can still delay delivery; a persistent service does not guarantee deep-Doze delivery.
+**Built-in connection** keeps a TLS WebSocket open to your own server, with a persistent listening notification. No distributor or push provider is required. It verifies the full path to the Waypoint server with a small application heartbeat every 45 seconds, reconnecting after a missing acknowledgement or a default-network change. The notification includes the last verified time. Queued requests are sent on reconnect while still valid. Android 1.3.2 requires a server with heartbeat acknowledgement support (server 1.3.2 or newer); upgrade the server before the APK. Your reverse proxy must support WebSocket upgrades at `/api/device/socket` (Caddy and Dokploy/Traefik normally handle this automatically). Android battery controls and network sleep can still delay delivery; a persistent service does not guarantee deep-Doze delivery.
 
 **UnifiedPush distributor** shares the distributor connection with other compatible apps. Waypoint runs its location service only when needed. Switching modes stops the previous listener. **Internet off** leaves SMS and optional scheduled checks available.
 
