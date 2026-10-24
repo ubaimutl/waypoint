@@ -122,6 +122,7 @@ class MainActivity:Activity() {
    val url=runCatching{Config.read(this)?.optString("url")}.getOrNull()
    if(url.isNullOrEmpty())connectionDialog() else startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))
   }
+  syncIdentity()
   Scheduling.apply(this)
   if(ConnectionModes.current(this)=="unifiedpush")PushSetup.uploadSaved(this)
   if(ConnectionModes.current(this)=="builtin")runCatching{startForegroundService(Intent(this,InternetService::class.java).putExtra("ensure",true))}
@@ -176,6 +177,14 @@ class MainActivity:Activity() {
   permissionValues["Notifications"]?.text=if(Build.VERSION.SDK_INT<33 || allowed(Manifest.permission.POST_NOTIFICATIONS))"Allowed" else "Not allowed"
   updateModeHelp()
  }
+ private fun syncIdentity() {
+  Thread {runCatching {
+   Config.read(this)?.let {config->
+    val result=Tracker.api(config,"/api/device/identity",JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL))
+    getSharedPreferences("state",0).edit().putString("deviceName",result.getString("name")).apply()
+   }
+  }}.start()
+ }
  private fun appSettings(){startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))}
  private fun locate(manual:Boolean) {
   if(!allowed(Manifest.permission.ACCESS_FINE_LOCATION) && !allowed(Manifest.permission.ACCESS_COARSE_LOCATION)){requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION),11);return}
@@ -212,7 +221,7 @@ class MainActivity:Activity() {
     else if(saved.has("token"))ConnectionModes.stop(this)
     Config.save(this,next)
     if(same && ConnectionModes.current(this)=="builtin")startForegroundService(Intent(this,InternetService::class.java))
-    Config.status(this,"Server settings saved.");dialog.dismiss();updateStatus()
+    Config.status(this,"Server settings saved.");syncIdentity();dialog.dismiss();updateStatus()
    }catch(e:Exception){Toast.makeText(this,e.message?:"Could not save settings.",Toast.LENGTH_LONG).show()}
   }}
   dialog.show()

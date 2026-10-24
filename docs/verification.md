@@ -2,7 +2,7 @@
 
 Validated during development:
 
-- Server tests: built-in WebSocket authentication, reconnect replay, single connection replacement, mode selection, authentication, origin checks, secure sessions, device token separation, command lifecycle, signed SMS creation, report validation, persistence, encrypted push payload, expired endpoints, provider configuration, DNS/IP SSRF checks.
+- Server tests: multi-device isolation, immediate revocation, existing-install migration, encrypted TOTP enrollment, authenticator/recovery replay rejection, MFA enforcement before session issuance, password-rotation session revocation, built-in WebSocket authentication, reconnect replay, single connection replacement, mode selection, authentication, origin checks, secure sessions, device token separation, command lifecycle, signed SMS creation, report validation, persistence, encrypted push payload, expired endpoints, provider configuration, DNS/IP SSRF checks.
 - Docker Compose: base configuration and optional Caddy override parse successfully.
 - Setup generator: configurable HTTPS origin/device name, private output permissions, and overwrite protection.
 - Android: APK and on-device test APK compile against SDK 36.
@@ -18,6 +18,7 @@ Limitations of these checks:
 - Deep Doze, reboot recovery, unstable networks, and multi-day standby battery use have not been comprehensively validated.
 - The physical distributor test used ntfy. Other compatible distributors are supported through the standard connector but require their own device validation.
 - No measured battery-drain percentage is claimed.
+- Multi-device isolation is tested with simulated devices. Physical device validation uses the connected Android phone; other models may require different manufacturer background settings.
 
 Test Android location reporting using the already configured device:
 

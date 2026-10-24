@@ -24,7 +24,7 @@ object Tracker {
    if(body!=null) { conn.requestMethod="POST";conn.doOutput=true;conn.setRequestProperty("Content-Type","application/json");conn.outputStream.use { it.write(body.toString().toByteArray()) } }
    val code=conn.responseCode
    if(code !in 200..299) throw IllegalStateException(when(code) { 301,302,303,307,308 -> "Server redirected the request. Check the server URL and optional access proxy credentials.";401,403 -> "Authentication failed. Check the device token and optional access proxy credentials.";409 -> "The request expired or was cancelled. Request location again.";else -> "Server returned HTTP $code. Try again when connected." })
-   if(!conn.contentType.orEmpty().contains("application/json")) throw IllegalStateException("Expected JSON. Check Cloudflare Access settings.")
+   if(!conn.contentType.orEmpty().contains("application/json")) throw IllegalStateException("Expected JSON. Check your server and optional access proxy settings.")
    return JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
   } finally { conn.disconnect() }
  }

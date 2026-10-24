@@ -18,7 +18,9 @@ const paths = {
 const $ = id => document.getElementById(id);
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.info}</svg>`;
 document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
-let map, marker, circle, latest, poll, toastTimer;
+let map, marker, circle, latest, poll, toastTimer, selectedDevice, currentDevice, deviceList=[], mfaEnabled=false, editingDevice;
+let loadGeneration=0,lastMappedDevice;
+const forDevice=()=>({device_id:selectedDevice});
 const relative = value => {
   const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60000));
   if (minutes < 1) return 'Just now';
@@ -30,10 +32,10 @@ function toast(message) { $('toast').textContent = message; $('toast').hidden = 
 async function api(route, data) {
   const response = await fetch(route, { method: data === undefined ? 'GET' : 'POST', headers: data === undefined ? {} : { 'Content-Type': 'application/json' }, body: data === undefined ? undefined : JSON.stringify(data) });
   const result = await response.json();
-  if (!response.ok) { if (response.status === 401 && route !== '/api/login') showLogin(); throw new Error(result.error || 'Could not connect. Please try again.'); }
+  if (!response.ok) { if (response.status === 401 && route !== '/api/login') showLogin(); throw Object.assign(new Error(result.error || 'Could not connect. Please try again.'),{status:response.status}); }
   return result;
 }
-function showLogin() { clearInterval(poll); $('dashboard').hidden = true; $('login').hidden = false; $('password').focus(); }
+function showLogin() { clearInterval(poll); for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close(); $('login-code-field').hidden=true; $('login-code').value=''; $('dashboard').hidden = true; $('login').hidden = false; $('password').focus(); }
 async function showDashboard() {
   $('login').hidden = true; $('dashboard').hidden = false;
   $('today').textContent = new Intl.DateTimeFormat(undefined, { weekday:'long', month:'long', day:'numeric' }).format(new Date());
@@ -66,7 +68,17 @@ function activityItem(title, detail, date, glyph) {
 }
 async function load() {
   try {
-    const data = await api('/api/dashboard'); latest = data.report;
+    const generation=++loadGeneration;
+    const data = await api('/api/dashboard'+(selectedDevice?'?device='+encodeURIComponent(selectedDevice):''));
+    if(generation!==loadGeneration)return;
+    currentDevice=data.device; selectedDevice=data.device?.id;deviceList=data.devices.filter(device=>!device.revoked_at);
+    const options=deviceList.map(device=>{const option=document.createElement('option');option.value=device.id;option.textContent=device.name;return option;});
+    if(!options.length){const option=document.createElement('option');option.textContent='No devices';options.push(option);}
+    $('device-select').replaceChildren(...options);if(selectedDevice)$('device-select').value=selectedDevice;
+    $('device-manage').disabled=!currentDevice || data.demo;$('device-add').disabled=data.demo;
+    document.querySelectorAll('.device-name').forEach(el=>el.textContent=currentDevice?.name || (data.demo?'Sample device':'No device selected'));
+    $('device-model').textContent=[currentDevice?.manufacturer,currentDevice?.model].filter(Boolean).join(' · ');
+    latest = data.report;
     $('connection-error').hidden = true; $('demo-banner').hidden = !data.demo;
     $('map-subtitle').textContent = latest ? `Reported ${relative(latest.recorded_at).toLowerCase()} · ${data.demo ? 'Sample location' : 'Device coordinates'}` : 'Waiting for your first check-in';
     $('location-badge').textContent = latest ? (data.demo ? 'Sample location' : `± ${Math.round(latest.accuracy)} m`) : 'No location yet';
@@ -77,12 +89,13 @@ async function load() {
     $('accuracy').textContent = latest ? `± ${Math.round(latest.accuracy)} m` : '—';
     $('device-state').lastChild.textContent = data.demo ? ' Sample device' : latest ? ' Last report received' : ' Not connected yet';
     const pending = data.commands.some(command => command.status === 'queued');
-    $('pending').hidden = !pending; $('retry-push').hidden = !pending || !data.push?.registered; $('wake-sms').hidden = !pending || data.demo; $('locate').disabled = pending;
+    $('pending').hidden = !pending; $('retry-push').hidden = !pending || !data.push?.registered; $('wake-sms').hidden = !pending || data.demo; $('locate').disabled = pending || !currentDevice || data.demo;
     $('locate').innerHTML = icon(pending ? 'clock' : 'target') + (pending ? 'Request queued' : 'Locate phone');
     const pushLabels = {not_registered:'Internet connection not enabled',connected:'Built-in connection online',builtin_sent:'Built-in wake-up sent',offline:'Built-in connection offline',registered:'Internet push ready',sending:'Sending internet push…',sent:'Push accepted by provider',failed:'Internet push failed',expired:'Push registration expired',rate_limited:'Push rate-limited; retry shortly'};
     $('push-state').textContent = pushLabels[data.push?.state] || 'Internet push not registered';
     $('push-state').title = data.push?.lastError || 'A wake-up does not confirm completion. A fresh phone report completes the request.';
     drawMap(latest);
+    if(latest && map && lastMappedDevice!==selectedDevice){map.setView([latest.lat,latest.lng],15);lastMappedDevice=selectedDevice;}
     const events = data.reports.map(report => ({ title:data.demo ? 'Sample location check-in' : 'Location received', detail:`${report.lat.toFixed(5)}°, ${report.lng.toFixed(5)}° · ${report.battery}% battery`, date:report.received_at, glyph:'pin' }));
     const labels = {queued:['Location requested','Waiting for the phone to fetch this request.'],completed:['Location request completed','The phone returned a fresh location.'],cancelled:['Request cancelled','This request is no longer active.'],expired:['Request expired','The phone did not respond within 30 minutes.']};
     data.commands.forEach(command => { const [title,detail] = labels[command.status]; events.push({title,detail,date:command.completed_at || command.created_at,glyph:command.status === 'completed' ? 'check' : 'clock'}); });
@@ -92,11 +105,13 @@ async function load() {
     if (!events.length) { const empty = document.createElement('div'); empty.className = 'empty-activity'; empty.innerHTML = icon('clock'); const text = document.createElement('span'); text.textContent = 'Nothing here yet. Your check-ins and requests will appear here.'; empty.append(text); $('activity-list').append(empty); }
     $('activity-count').textContent = `${Math.min(events.length,8)} event${events.length === 1 ? '' : 's'}`;
     $('sync-status').textContent = `Updated ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
-  } catch (error) { $('connection-error').textContent = error.message; $('connection-error').hidden = false; $('sync-status').textContent = 'Could not refresh'; }
+  } catch (error) { if(error.status===404 && selectedDevice){selectedDevice=undefined;return load();} $('connection-error').textContent = error.message; $('connection-error').hidden = false; $('sync-status').textContent = 'Could not refresh'; }
 }
 $('login-form').addEventListener('submit', async event => {
   event.preventDefault(); $('sign-in').disabled = true; $('login-error').textContent = '';
-  try { await api('/api/login', {password:$('password').value}); $('password').value = ''; await showDashboard(); }
+  try { const result=await api('/api/login', {password:$('password').value,code:$('login-code').value});
+    if(result.requiresTwoFactor){$('login-code-field').hidden=false;$('login-code').focus();return;}
+    $('password').value='';$('login-code').value='';$('login-code-field').hidden=true;await showDashboard(); }
   catch (error) { $('login-error').textContent = error.message; }
   finally { $('sign-in').disabled = false; }
 });
@@ -108,10 +123,10 @@ $('refresh').addEventListener('click', async () => { $('refresh').disabled = tru
 $('overview-nav').addEventListener('click', () => window.scrollTo({top:0,behavior:'smooth'}));
 $('locate').addEventListener('click', async () => {
   $('locate').disabled = true;
-  try { const result = await api('/api/locate', {}); await load(); toast(result.push?.state === 'builtin_sent' ? 'Wake-up sent over built-in connection. Waiting for phone.' : result.push?.state === 'sent' ? 'Push accepted by provider. Waiting for phone.' : result.push?.error || 'Request queued. Enable an internet connection in the app, or use SMS / periodic checks.'); }
+  try { const result = await api('/api/locate', forDevice()); await load(); toast(result.push?.state === 'builtin_sent' ? 'Wake-up sent over built-in connection. Waiting for phone.' : result.push?.state === 'sent' ? 'Push accepted by provider. Waiting for phone.' : result.push?.error || 'Request queued. Enable an internet connection in the app, or use SMS / periodic checks.'); }
   catch(error) { toast(error.message); $('locate').disabled = false; }
 });
-$('cancel').addEventListener('click', async () => { try { await api('/api/cancel', {}); await load(); toast('Location request cancelled.'); } catch(error) { toast(error.message); } });
+$('cancel').addEventListener('click', async () => { try { await api('/api/cancel', forDevice()); await load(); toast('Location request cancelled.'); } catch(error) { toast(error.message); } });
 $('recenter').addEventListener('click', () => { if (latest && map) map.setView([latest.lat,latest.lng],15); });
 $('copy-coordinates').addEventListener('click', async () => { if (!latest) return; try { await navigator.clipboard.writeText(`${latest.lat.toFixed(5)}, ${latest.lng.toFixed(5)}`); toast('Coordinates copied.'); } catch { toast('Copy unavailable. You can select the coordinates below the map.'); } });
 (async () => {
@@ -119,6 +134,63 @@ $('copy-coordinates').addEventListener('click', async () => { if (!latest) retur
   catch { showLogin(); $('login-error').textContent = 'Could not connect to the server. Please reload.'; }
 })();
 
-$('wake-sms').addEventListener('click', async () => { try { const result = await api('/api/wake-message', {}); await navigator.clipboard.writeText(result.message); toast('Signed SMS copied. Send it to this phone from another device within 10 minutes.'); } catch (error) { toast(error.message); } });
+$('wake-sms').addEventListener('click', async () => { try { const result = await api('/api/wake-message', forDevice()); await navigator.clipboard.writeText(result.message); toast('Signed SMS copied. Send it to this phone from another device within 10 minutes.'); } catch (error) { toast(error.message); } });
 
 $('retry-push').addEventListener('click', async () => { $('retry-push').disabled=true; try { const result=await api('/api/retry-push',{}); await load(); toast(result.state==='builtin_sent' ? 'Wake-up sent over built-in connection. Waiting for phone.' : result.state==='sent' ? 'Push accepted by provider. Waiting for phone.' : result.error || 'Push already sent recently. Wait 10 seconds.'); } catch(error) {toast(error.message);} finally {$('retry-push').disabled=false;} });
+
+$('device-select').addEventListener('change',()=>{selectedDevice=$('device-select').value;loadGeneration++;load();});
+async function securityState(){const value=await api('/api/security');mfaEnabled=value.twoFactorEnabled;return value;}
+function clearSensitive(dialog){for(const field of dialog.querySelectorAll('input,textarea'))field.value='';if(dialog.id==='security-dialog'){$('mfa-qr').removeAttribute('src');$('mfa-confirm-form').hidden=true;$('recovery-panel').hidden=true;}}
+for(const name of ['device','security']){$(name+'-dialog').addEventListener('close',()=>clearSensitive($(name+'-dialog')));}
+$('device-dialog-close').addEventListener('click',()=>$('device-dialog').close());
+$('security-close').addEventListener('click',()=>$('security-dialog').close());
+async function openDevice(edit){
+ try{
+  await securityState();editingDevice=edit?currentDevice?.id:null;
+  clearSensitive($('device-dialog'));$('device-error').textContent='';$('device-form').hidden=false;$('device-credentials').hidden=true;
+  $('device-dialog-title').textContent=edit?'Manage device':'Add device';$('device-label').value=edit?currentDevice.name:'';
+  $('device-save').textContent=edit?'Save name':'Create device';$('device-revoke').hidden=!edit;$('device-password').required=!edit;
+  $('device-code-field').hidden=!mfaEnabled;$('device-dialog').showModal();$('device-label').focus();
+ }catch(error){toast(error.message);}
+}
+$('device-add').addEventListener('click',()=>openDevice(false));$('device-manage').addEventListener('click',()=>openDevice(true));
+const deviceCredentials=()=>({password:$('device-password').value,code:$('device-code').value});
+$('device-form').addEventListener('submit',async event=>{
+ event.preventDefault();$('device-save').disabled=true;$('device-error').textContent='';
+ try{
+  if(editingDevice){await api('/api/devices/rename',{device_id:editingDevice,name:$('device-label').value});$('device-dialog').close();await load();toast('Device name saved.');}
+  else{
+   const result=await api('/api/devices/add',{name:$('device-label').value,...deviceCredentials()});
+   $('device-password').value='';$('device-code').value='';$('device-form').hidden=true;$('device-credentials').hidden=false;
+   $('enroll-url').value=result.url;$('enroll-token').value=result.token;selectedDevice=result.id;await load();
+  }
+ }catch(error){$('device-error').textContent=error.message;}finally{$('device-save').disabled=false;}
+});
+$('device-revoke').addEventListener('click',async()=>{
+ $('device-error').textContent='';if(!$('device-password').value){$('device-error').textContent='Enter your dashboard password to revoke this device.';$('device-password').focus();return;}
+ if(!confirm('Revoke this device? Its token and internet connection will stop working. History stays on this server.'))return;
+ $('device-revoke').disabled=true;
+ try{await api('/api/devices/revoke',{device_id:editingDevice,...deviceCredentials()});$('device-dialog').close();selectedDevice=undefined;await load();toast('Device credentials revoked.');}
+ catch(error){$('device-error').textContent=error.message;}finally{$('device-revoke').disabled=false;}
+});
+$('enroll-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('enroll-token').value);toast('Device token copied.');}catch{toast('Select and copy the token manually.');}});
+async function updateSecurity(){const value=await securityState();$('security-status').textContent=value.twoFactorEnabled?`Two-factor authentication enabled · ${value.recoveryCodesRemaining} recovery codes remaining · ${value.sessionCount} active browser sessions`:`Two-factor authentication is off · ${value.sessionCount} active browser sessions`;$('security-code-field').hidden=!mfaEnabled;$('mfa-start').hidden=mfaEnabled;$('mfa-disable').hidden=!mfaEnabled;}
+$('security-open').addEventListener('click',async()=>{try{clearSensitive($('security-dialog'));$('security-error').textContent='';await updateSecurity();$('security-dialog').showModal();}catch(error){toast(error.message);}});
+const securityCredentials=()=>({password:$('security-password').value,code:$('security-code').value});
+async function securityAction(action){$('security-error').textContent='';try{await action();}catch(error){$('security-error').textContent=error.message;}}
+$('mfa-start').addEventListener('click',()=>securityAction(async()=>{
+ $('mfa-start').disabled=true;
+ try{const result=await api('/api/security/setup',securityCredentials());$('security-password').value='';$('mfa-secret').value=result.secret;$('mfa-qr').src=result.qr;$('mfa-confirm-form').hidden=false;$('recovery-panel').hidden=true;$('mfa-confirm-code').focus();}
+ finally{$('mfa-start').disabled=false;}
+}));
+$('mfa-confirm-form').addEventListener('submit',event=>{event.preventDefault();securityAction(async()=>{
+ const result=await api('/api/security/confirm',{code:$('mfa-confirm-code').value});
+ $('mfa-confirm-form').hidden=true;$('mfa-secret').value='';$('mfa-confirm-code').value='';$('mfa-qr').removeAttribute('src');
+ $('recovery-codes').value=result.recoveryCodes.join('\n');$('recovery-panel').hidden=false;await updateSecurity();toast('Two-factor authentication enabled. Save your recovery codes.');
+});});
+$('mfa-disable').addEventListener('click',()=>securityAction(async()=>{
+ if(!confirm('Disable two-factor authentication? Your password will be the only dashboard sign-in factor.'))return;
+ await api('/api/security/disable',securityCredentials());clearSensitive($('security-dialog'));await updateSecurity();toast('Two-factor authentication disabled. Other browsers signed out.');
+}));
+$('sessions-revoke').addEventListener('click',()=>securityAction(async()=>{await api('/api/security/revoke-sessions',securityCredentials());$('security-password').value='';$('security-code').value='';await updateSecurity();toast('Other browser sessions signed out.');}));
+$('recovery-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('recovery-codes').value);toast('Recovery codes copied. Store them separately from your phone.');}catch{toast('Select and copy the codes manually.');}});

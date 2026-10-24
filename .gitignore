@@ -17,3 +17,5 @@ android/.kotlin/
 android/**/build/
 android/local.properties
 .DS_Store
+
+secrets.key

@@ -80,8 +80,9 @@ test('production authentication, command lifecycle, and location storage', async
       const dashboard=await (await request('/api/dashboard',{auth:true})).json(); assert.equal(dashboard.report.battery,74); assert.equal(dashboard.commands[0].status,'completed');
       assert.equal((await request('/api/device/report',{device:true,data:{...report,command_id:command.id}})).status,409);
     });
-    await t.test('pending request can be cancelled',async () => {
-      await request('/api/locate',{data:{},auth:true}); await request('/api/cancel',{data:{},auth:true});
+    await t.test('request cooldown applies after completion',async () => {
+      assert.equal((await request('/api/locate',{data:{},auth:true})).status,429);
+      assert.equal((await request('/api/cancel',{data:{},auth:true})).status,200);
       const result=await (await request('/api/device/commands',{device:true})).json();assert.equal(result.command,null);
     });
     await t.test('reports and session survive restart',async () => {

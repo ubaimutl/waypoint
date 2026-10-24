@@ -7,7 +7,7 @@ services:
     environment:
       APP_ORIGIN: ${APP_ORIGIN:?Run node scripts/setup.mjs}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?Run node scripts/setup.mjs}
-      DEVICE_TOKEN: ${DEVICE_TOKEN:?Run node scripts/setup.mjs}
+      DEVICE_TOKEN: ${DEVICE_TOKEN:-}
       DEVICE_NAME: ${DEVICE_NAME:-My phone}
       PUSH_ALLOWED_HOSTS: ${PUSH_ALLOWED_HOSTS:-}
       PUSH_PRIVATE_HOSTS: ${PUSH_PRIVATE_HOSTS:-}

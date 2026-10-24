@@ -19,7 +19,7 @@ This transport design follows the approach documented by [FMD](https://fmd-foss.
 - Android 12 or newer; location enabled.
 - Built-in mode needs no extra app. UnifiedPush mode optionally uses a distributor such as **ntfy** or **Sunup**. Allow background activity for the selected listener.
 - Docker / Docker Compose on a server, with a persistent volume and HTTPS reverse proxy.
-- One device and one dashboard account per server instance. Deploy separate instances for separate devices.
+- One owner dashboard account per server instance, with up to 20 active Android devices. Each device has separate credentials, commands, reports, and wake-up connections.
 
 **Cloudflare, Dokploy, Google Play services, and a specific phone model are not required.**
 
@@ -32,11 +32,11 @@ node scripts/setup.mjs --origin https://locator.example.com --device "My phone"
 docker compose up -d --build
 ```
 
-The generator writes `.env` and `credentials.txt` with private file permissions. These files are ignored by Git. Open `credentials.txt` locally for the dashboard password and Android device token. Use the **device token**, not the dashboard password, in the Android app.
+The generator writes `.env` and `credentials.txt` with private file permissions. These files are ignored by Git. Open `credentials.txt` locally for the dashboard password and Android device token. Use the **device token**, not the dashboard password, in the Android app. The initial token creates the first device; add further devices in the dashboard.
 
 The default Compose setup binds HTTP to `127.0.0.1:8080`. Configure your existing HTTPS reverse proxy to forward to that address. Set `APP_ORIGIN` to the exact external HTTPS origin, without a trailing slash.
 
-### Optional Caddy HTTPS
+### Caddy HTTPS (recommended for a simple public deployment)
 
 Point a domain at the server, add `DOMAIN=locator.example.com` to `.env`, then run:
 
@@ -87,6 +87,28 @@ By default, push endpoints must use HTTPS and resolve to public addresses. DNS a
 
 A provider accepting a push is shown as **Push accepted by provider**, not as device delivery. Actual completion requires a phone report. Expired registrations require re-registration in the app. Failed sends leave the command queued and show fallback options.
 
+## Devices and dashboard security
+
+Use **Add device** to choose a name and generate unique device credentials. The dashboard asks for your password and, when enabled, your authenticator or recovery code. Copy the HTTPS server URL and token into that phone’s **Connection → Edit** screen. The token is displayed only at creation. Android reports its manufacturer and model automatically; the chosen name stays editable in **Manage device**. These hardware labels identify a device for the owner; they are not hardware attestation.
+
+Select a device to see its own reports, battery reading, connection, and requests. **Revoke device** disables that credential immediately, disconnects its listener, removes its push subscription, and cancels pending commands. It does not affect other devices. Its history remains stored. Revoked credentials cannot be enabled again by restarting the server. A new registration gets a new token.
+
+Open **Security → Set up two-factor authentication**, confirm your dashboard password, and scan the QR code with a compatible authenticator (or enter the setup key). Enter a current six-digit code to activate it. Save the ten recovery codes immediately; each works once with your password, and they cannot be displayed again. Keep the authenticator or a backup separately from the phone being tracked. 2FA is optional until the owner enrolls, and is enforced for all subsequent dashboard logins once enabled. Passkeys are not implemented in this release.
+
+Enabling or disabling 2FA signs out other browsers and rotates the current session. **Sign out other browsers** is available in Security. Sessions expire after 12 hours. Password login and sensitive operations share a persistent limit of eight failed authentication attempts per 15 minutes. Location requests and wake-up retries are limited per device. Previously accepted authenticator codes cannot be replayed; wait for the next code when confirming another sensitive action.
+
+Android uses only its device token; it never completes browser 2FA. HTTPS and built-in authentication work independently of the reverse proxy. Caddy, Cloudflare Tunnel/Access, private VPNs such as Tailscale/Headscale, and other tunnels such as Pangolin are deployment choices. An external gateway must still allow authenticated device API and WebSocket traffic. A VPN is not required. An HTTPS reverse proxy on the same server does not conceal that server’s public IP.
+
+If the authenticator and recovery codes are both lost, someone with server filesystem access can run:
+
+```sh
+docker compose exec waypoint node scripts/reset-2fa.mjs --confirm
+```
+
+This removes dashboard 2FA and revokes all browser sessions; the password and device credentials remain unchanged. In Dokploy, use the application container terminal. Host administrators can already access this application’s stored data, so keep host access restricted.
+
+Existing single-device installations migrate automatically and retain their original token and history. Back up before upgrading. `DEVICE_NAME` and `DEVICE_TOKEN` bootstrap the initial registration; later names are managed in the dashboard. New installations may leave `DEVICE_TOKEN` empty and add their first device after signing in.
+
 ## Other transports
 
 - **SMS:** Press Locate, then Copy wake-up SMS. Send the signed message to the phone from another device within 10 minutes. Waypoint validates its HMAC, timestamp, and replay state, then fetches the pending command. No automatic SMS gateway is included.
@@ -99,7 +121,7 @@ An offline or powered-off phone cannot report over the internet. Android and man
 
 The dashboard fetches map tiles from OpenStreetMap. The tile provider sees your browser’s IP and viewed map area. Replace the tile source/CSP if you require a privately hosted map. There is no analytics or automatic reverse geocoding.
 
-The server retains the latest 100 reports. Back up the SQLite volume with a SQLite-aware backup or while stopped. Keep VAPID keys and push subscriptions in that volume across redeployments. Updating the device token requires updating the Android connection and re-registering push. Password changes require revoking existing sessions separately; see `server/README.md`.
+The server retains the latest 100 reports per device. Back up the entire data volume, including `secrets.key`, with a SQLite-aware backup or while stopped. The key is needed to decrypt MFA secrets and device tokens used for signed SMS. Keep VAPID keys and push subscriptions in that volume across redeployments. Revoke device credentials from **Manage device**; add a replacement registration to generate a new token. Changing `ADMIN_PASSWORD_HASH` invalidates existing browser sessions at the next server start.
 
 ## Development and checks
 

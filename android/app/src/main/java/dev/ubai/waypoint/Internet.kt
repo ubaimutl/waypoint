@@ -76,7 +76,7 @@ class InternetService:Service() {
   val request=Request.Builder().url(config.getString("url").trimEnd('/')+"/api/device/socket").header("Authorization","Bearer "+config.getString("token"))
   if(config.optString("cfId").isNotEmpty()){request.header("CF-Access-Client-Id",config.getString("cfId"));request.header("CF-Access-Client-Secret",config.optString("cfSecret"))}
   socket=client.newWebSocket(request.build(),object:WebSocketListener(){
-   override fun onOpen(webSocket:WebSocket,response:Response){handler.post{if(mine==generation && !stopping){retrySeconds=2;status("Connected · listening for requests")}}}
+   override fun onOpen(webSocket:WebSocket,response:Response){handler.post{if(mine==generation && !stopping){retrySeconds=2;status("Connected · listening for requests");Thread{runCatching{Tracker.api(config,"/api/device/identity",JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL))}}.start()}}}
    override fun onMessage(webSocket:WebSocket,text:String){handler.post{
     if(mine!=generation || stopping || ConnectionModes.current(this@InternetService)!="builtin")return@post
     val data=runCatching{JSONObject(text)}.getOrNull()?:return@post

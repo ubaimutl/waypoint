@@ -5,6 +5,8 @@ Third-party dependencies retain their own licenses:
 - Leaflet: BSD-2-Clause, https://leafletjs.com/
 - web-push: MIT, https://github.com/web-push-libs/web-push
 - ipaddr.js: MIT, https://github.com/whitequark/ipaddr.js
+- otplib: MIT, https://github.com/yeojz/otplib
+- qrcode: MIT, https://github.com/soldair/node-qrcode
 - OkHttp: Apache-2.0, https://github.com/square/okhttp
 - ws: MIT, https://github.com/websockets/ws
 - Kotlin and transitive Android dependencies: see their distributed licenses.
