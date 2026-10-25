@@ -4,6 +4,31 @@ import http from 'node:http';
 import {once} from 'node:events';
 import WebSocket from 'ws';
 import {createBuiltinTransport} from '../builtin.mjs';
+test('application heartbeats replace protocol pings and silence still expires',async t=>{
+ const server=http.createServer();
+ const transport=createBuiltinTransport(server,{authenticate:()=>true,heartbeatMs:25,applicationIdleMs:150});
+ t.after(async()=>{transport.shutdown();await new Promise(resolve=>server.close(resolve));});
+ server.listen(0,'127.0.0.1');await once(server,'listening');
+ const client=new WebSocket(`ws://127.0.0.1:${server.address().port}/api/device/socket`);
+ const ready=once(client,'message');await once(client,'open');await ready;
+ let pings=0;client.on('ping',()=>pings++);
+ const ack=once(client,'message');client.send(JSON.stringify({type:'heartbeat',version:1,nonce:'single-loop'}));await ack;
+ pings=0;
+ // This client automatically answers protocol pings. Only application activity should keep it alive.
+ await once(client,'close',{signal:AbortSignal.timeout(2000)});
+ assert.equal(pings,0);assert.equal(transport.status().connected,false);
+});
+test('legacy clients retain server protocol pings',async t=>{
+ const server=http.createServer();
+ const transport=createBuiltinTransport(server,{authenticate:()=>true,heartbeatMs:25});
+ t.after(async()=>{transport.shutdown();await new Promise(resolve=>server.close(resolve));});
+ server.listen(0,'127.0.0.1');await once(server,'listening');
+ const client=new WebSocket(`ws://127.0.0.1:${server.address().port}/api/device/socket`);
+ await once(client,'open');
+ for(let i=0;i<3;i++)await once(client,'ping',{signal:AbortSignal.timeout(2000)});
+ assert.equal(transport.status().connected,true);
+ client.close();await once(client,'close');
+});
 test('built-in transport authenticates and replays pending requests on reconnect',async t=>{
  const server=http.createServer();let pending=false;
  const transport=createBuiltinTransport(server,{authenticate:r=>r.headers.authorization==='Bearer test-secret',hasPending:()=>pending});

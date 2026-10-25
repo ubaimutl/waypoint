@@ -1,6 +1,6 @@
 import {WebSocketServer,WebSocket} from 'ws';
 
-export function createBuiltinTransport(server,{authenticate,onConnect=()=>{},onContact=()=>{},hasPending=()=>false,heartbeatMs=60000}={}) {
+export function createBuiltinTransport(server,{authenticate,onConnect=()=>{},onContact=()=>{},hasPending=()=>false,heartbeatMs=60000,applicationIdleMs=180000}={}) {
  const hub=new WebSocketServer({noServer:true,maxPayload:1024,perMessageDeflate:false});
  const connections=new Map(),history=new Map();
  const wake=(id='default')=>{
@@ -26,12 +26,21 @@ export function createBuiltinTransport(server,{authenticate,onConnect=()=>{},onC
    if(binary || connections.get(id)!==ws || ws.readyState!==WebSocket.OPEN)return;
    let data;try{data=JSON.parse(raw.toString());}catch{return;}
    if(data?.type!=='heartbeat' || data.version!==1 || typeof data.nonce!=='string' || !/^[a-zA-Z0-9-]{1,80}$/.test(data.nonce))return;
+   ws.lastApplicationHeartbeatAt=Date.now();
    ws.alive=true;onContact(id);ws.send(JSON.stringify({type:'heartbeat_ack',version:1,nonce:data.nonce}));
   });
   ws.on('close',()=>{if(connections.get(id)===ws)connections.delete(id);});
   onConnect(id);ws.send(JSON.stringify({type:'ready',version:1}));if(hasPending(id))wake(id);
  });
- const heartbeat=setInterval(()=>{for(const socket of connections.values()){if(!socket.alive){socket.terminate();continue;}socket.alive=false;socket.ping();}},heartbeatMs);heartbeat.unref();
+ // Modern clients already verify the origin. Avoid another radio wake-up for protocol pings.
+ // Keep protocol pings for older clients; protocol pongs cannot extend application liveness.
+ const heartbeat=setInterval(()=>{for(const socket of connections.values()){
+  if(socket.lastApplicationHeartbeatAt!==undefined){
+   if(Date.now()-socket.lastApplicationHeartbeatAt>=applicationIdleMs)socket.terminate();
+   continue;
+  }
+  if(!socket.alive){socket.terminate();continue;}socket.alive=false;socket.ping();
+ }},heartbeatMs);heartbeat.unref();
  return {
   wake,
   status:(id='default')=>({connected:connections.get(id)?.readyState===WebSocket.OPEN,lastSentAt:null,lastConnectedAt:null,...history.get(id)}),

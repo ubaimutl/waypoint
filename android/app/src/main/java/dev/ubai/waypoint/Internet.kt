@@ -37,7 +37,7 @@ object ConnectionModes {
 class InternetService:Service() {
  private val handler=Handler(Looper.getMainLooper())
  private val cleanup=Executors.newSingleThreadExecutor()
- private val client=OkHttpClient.Builder().connectTimeout(15,TimeUnit.SECONDS).readTimeout(0,TimeUnit.MILLISECONDS).pingInterval(60,TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+ private val client=OkHttpClient.Builder().connectTimeout(15,TimeUnit.SECONDS).readTimeout(0,TimeUnit.MILLISECONDS).followRedirects(false).followSslRedirects(false).build()
  private var socket:WebSocket?=null
  private var generation=0
  private var stopping=false
