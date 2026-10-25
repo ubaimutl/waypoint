@@ -10,6 +10,29 @@ class DeviceCheck:Instrumentation() {
  override fun onCreate(arguments:Bundle?) {super.onCreate(arguments);mode=arguments?.getString("mode")?:"location";start()}
  override fun onStart() {
   try {
+   if(mode=="location-selection") {
+    val start=200_000_000_000L
+    fun fix(accuracy:Float,elapsed:Long=start,time:Long=10000)=android.location.Location("test").apply{
+     this.accuracy=accuracy;elapsedRealtimeNanos=elapsed;this.time=time
+    }
+    val selection=FreshFixSelection(start,9000)
+    check(selection.selected()==null)
+    selection.offer(fix(100f),start)
+    check(!selection.precise.isDone){"Rough network fix ended acquisition early"}
+    selection.offer(fix(35f,start+1_000_000_000L),start+1_000_000_000L)
+    selection.offer(fix(90f,start+2_000_000_000L),start+2_000_000_000L)
+    check(selection.selected()?.accuracy==35f){"Best fallback was replaced by a worse fix"}
+    selection.offer(fix(3f,start-10_000_000_000L),start)
+    selection.offer(fix(3f,time=8000),start)
+    selection.offer(fix(3f,start+5_000_000_000L),start)
+    selection.offer(fix(Float.NaN),start)
+    check(!selection.precise.isDone && selection.selected()?.accuracy==35f){"Invalid or stale fix accepted"}
+    selection.offer(fix(12f,start+3_000_000_000L),start+3_000_000_000L)
+    check(selection.precise.isDone && selection.selected()?.accuracy==12f)
+    selection.offer(fix(5f,start+4_000_000_000L),start+4_000_000_000L)
+    check(selection.selected()?.accuracy==5f){"Newer, better precise fix was discarded"}
+    finish(Activity.RESULT_OK,Bundle().apply{putString("result","PASS: rough-first fix waits; best fallback retained; stale/invalid fixes rejected; precise fix completes.")});return
+   }
    sendStatus(1,Bundle().apply{putString("stage","Reading app configuration")})
    val context=targetContext
    val config=Config.read(context)?:error("Not provisioned")

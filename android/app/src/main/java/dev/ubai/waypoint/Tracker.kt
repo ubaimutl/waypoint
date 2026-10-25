@@ -13,6 +13,21 @@ import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 
+internal class FreshFixSelection(private val startedAt:Long,private val commandTime:Long?) {
+ val precise=CompletableFuture<Location>()
+ private var best:Location?=null
+ @Synchronized fun offer(fix:Location,now:Long) {
+  val age=now-fix.elapsedRealtimeNanos
+  if(age !in 0..120_000_000_000L || fix.elapsedRealtimeNanos<startedAt-5_000_000_000L ||
+   (commandTime!=null && fix.time<commandTime) || !fix.hasAccuracy() || !fix.accuracy.isFinite() || fix.accuracy<0)return
+  val previous=best
+  if(previous==null || fix.accuracy<previous.accuracy ||
+   (fix.accuracy==previous.accuracy && fix.elapsedRealtimeNanos>previous.elapsedRealtimeNanos))best=Location(fix)
+  if(fix.accuracy<=20f)precise.complete(Location(fix))
+ }
+ @Synchronized fun selected():Location?=best?.let { Location(it) }
+}
+
 object Tracker {
  private val busy=AtomicBoolean(false)
  fun api(config:JSONObject,path:String,body:JSONObject?=null):JSONObject {
@@ -39,15 +54,17 @@ object Tracker {
    if(context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED && context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) throw IllegalStateException("Allow location access first.")
    val manager=context.getSystemService(LocationManager::class.java)
    if(!manager.isLocationEnabled) throw IllegalStateException("Turn on Location in Android settings.")
-   Config.status(context,"Getting a fresh location…")
-   val result=CompletableFuture<Location>()
+   Config.status(context,"Getting a precise location (up to 65 seconds)…")
+   val startedAt=SystemClock.elapsedRealtimeNanos()
+   val commandTime=command?.let { Instant.parse(it.getString("created_at")).toEpochMilli()-5000 }
+   val selection=FreshFixSelection(startedAt,commandTime)
    val listeners=mutableListOf<LocationListener>()
    val executor=Executors.newSingleThreadExecutor()
-   try {
+   val fix=try {
     for(provider in listOf(LocationManager.GPS_PROVIDER,LocationManager.NETWORK_PROVIDER)) {
      if(manager.isProviderEnabled(provider)) {
       val listener=LocationListener { fix ->
-       if(SystemClock.elapsedRealtimeNanos()-fix.elapsedRealtimeNanos<120_000_000_000L && (command==null || fix.time>=Instant.parse(command.getString("created_at")).toEpochMilli()-5000)) result.complete(fix)
+       selection.offer(fix,SystemClock.elapsedRealtimeNanos())
       }
       listeners.add(listener)
       manager.requestLocationUpdates(provider,LocationRequest.Builder(1000).setDurationMillis(65000).setQuality(LocationRequest.QUALITY_HIGH_ACCURACY).build(),executor,listener)
@@ -55,10 +72,10 @@ object Tracker {
     }
     if(listeners.isEmpty()) throw IllegalStateException("No location provider is enabled.")
     val deadline=SystemClock.elapsedRealtime()+65000
-    while(!result.isDone && SystemClock.elapsedRealtime()<deadline && !cancelled.get()) Thread.sleep(250)
+    while(!selection.precise.isDone && SystemClock.elapsedRealtime()<deadline && !cancelled.get()) Thread.sleep(250)
     if(cancelled.get()) return
-    if(!result.isDone) throw IllegalStateException("No fresh fix in 65 seconds. Move near a window or outdoors and retry.")
-    val fix=result.get()
+    selection.selected()?:throw IllegalStateException("No fresh fix in 65 seconds. Move near a window or outdoors and retry.")
+   } finally { listeners.forEach { manager.removeUpdates(it) };executor.shutdownNow() }
     val battery=context.registerReceiver(null,IntentFilter(Intent.ACTION_BATTERY_CHANGED))
     val level=battery?.getIntExtra(BatteryManager.EXTRA_LEVEL,-1)?:-1
     val scale=battery?.getIntExtra(BatteryManager.EXTRA_SCALE,100)?:100
@@ -68,7 +85,6 @@ object Tracker {
     if(command!=null) report.put("command_id",command.getString("id"))
     api(config,"/api/device/report",report)
     Config.status(context,"Location sent successfully · ± ${fix.accuracy.toInt()} m")
-   } finally { listeners.forEach { manager.removeUpdates(it) };executor.shutdownNow() }
   } catch(e:Exception) { Config.status(context,e.message?:"Could not report location. Try again.") }
   finally { busy.set(false) }
  }

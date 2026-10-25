@@ -117,7 +117,7 @@ Existing single-device installations migrate automatically and retain their orig
 
 ## Limits and privacy
 
-An offline or powered-off phone cannot report over the internet. Android and manufacturer battery controls may delay or block background execution. Internet delivery requires either the built-in background connection or a distributor connection; there is no measured battery guarantee. Indoor positioning may fail. Location requests stop after 65 seconds rather than keeping GPS running indefinitely. Force-stopping the app disables its background receivers until it is reopened.
+An offline or powered-off phone cannot report over the internet. Android and manufacturer battery controls may delay or block background execution. Internet delivery requires either the built-in background connection or a distributor connection; there is no measured battery guarantee. Indoor positioning may fail. Android 1.3.4 seeks a fresh fix with estimated accuracy within 20 meters, or sends the best available fresh fix after 65 seconds. A rough first network fix no longer ends acquisition immediately. GPS updates stop before the upload. This can increase the time and energy of an individual location request, without adding background tracking. The reported accuracy is an estimate, not a guarantee that the phone is inside that radius. Force-stopping the app disables its background receivers until it is reopened.
 
 The dashboard fetches map tiles from OpenStreetMap. The tile provider sees your browser’s IP and viewed map area. Replace the tile source/CSP if you require a privately hosted map. There is no analytics or automatic reverse geocoding.
 
