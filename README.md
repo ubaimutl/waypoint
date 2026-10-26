@@ -10,7 +10,7 @@ Self-hosted Android device locator with a web dashboard. Uses Google-free Androi
 
 These screenshots use the local demo with a synthetic device and sample coordinates, not a real phone report. Screens may change during development.
 
-![Waypoint dashboard showing a sample location and device status](docs/screenshots/dashboard.jpg)
+![Waypoint desktop dashboard showing a sample location and device status](docs/screenshots/dashboard-desktop.jpg)
 
 <details>
 <summary>Sign-in screen</summary>
