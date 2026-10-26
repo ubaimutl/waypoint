@@ -2,6 +2,23 @@
 
 Self-hosted Android device locator with a web dashboard. Uses Google-free Android location APIs with a choice of built-in internet connection or UnifiedPush. SMS and optional scheduled checks provide alternative transports.
 
+> **Under active development and testing.** Waypoint is experimental. Background delivery, reboot recovery, location accuracy, and battery consumption are still being tested across devices and networks. Features and configuration may change. Do not rely on it as your only way to recover a lost phone. It has not undergone an independent security audit.
+
+**Contributions are welcome:** code, bug reports, documentation, translations, and testing on other Android devices. See [Contributing](CONTRIBUTING.md).
+
+## Screenshots
+
+These screenshots use the local demo with a synthetic device and sample coordinates, not a real phone report. Screens may change during development.
+
+![Waypoint dashboard showing a sample location and device status](docs/screenshots/dashboard.jpg)
+
+<details>
+<summary>Sign-in screen</summary>
+
+![Waypoint dashboard sign-in screen in local demo mode](docs/screenshots/sign-in.jpg)
+
+</details>
+
 ## How it works
 
 1. Press **Locate phone** in the dashboard.
@@ -68,6 +85,8 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 3. Grant precise location, background location (**Allow all the time**), and notification permissions.
 4. Choose **Built-in connection** and connect, or install/configure a distributor and choose **UnifiedPush distributor**. Allow background activity for Waypoint, and also the distributor when using UnifiedPush.
 5. Confirm the connection status. Background the app, press **Locate phone**, and check that a fresh report arrives.
+
+For better positioning while using mobile data, Android's **Location services → Location Accuracy** and **Wi-Fi scanning** can help use nearby access points without joining a Wi-Fi network. Wi-Fi scanning is a system-wide allowance, not a continuous scanning loop implemented by Waypoint. Other apps and Android may request scans, and battery impact varies. Waypoint does not silently toggle this setting. Satellite positioning can work without Wi-Fi; reception and accuracy still depend on the surroundings. Test your own phone with Wi-Fi off before relying on remote recovery.
 
 Connection credentials and saved subscription data are encrypted with Android Keystore. They are not embedded in the APK. A new installation has no predefined server, account, or push registration.
 
