@@ -1,5 +1,6 @@
 services:
   waypoint:
+    image: ${WAYPOINT_IMAGE:-ghcr.io/ubaimutl/waypoint:1.0.0}
     build:
       context: ./server
     restart: unless-stopped

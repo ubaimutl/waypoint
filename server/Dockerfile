@@ -1,4 +1,12 @@
 FROM node:24-alpine
+ARG VERSION=dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.source="https://github.com/ubaimutl/waypoint" \
+      org.opencontainers.image.title="Waypoint" \
+      org.opencontainers.image.description="Experimental self-hosted Android device locator server" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.revision=$REVISION
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force

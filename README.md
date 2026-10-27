@@ -40,16 +40,29 @@ This transport design follows the approach documented by [FMD](https://fmd-foss.
 
 **Cloudflare, Dokploy, Google Play services, and a specific phone model are not required.**
 
+## Release downloads
+
+Get the signed Android APK and checksums from [v1.0.0](https://github.com/ubaimutl/waypoint/releases/tag/v1.0.0). The server image supports Linux AMD64 and ARM64:
+
+```sh
+docker pull ghcr.io/ubaimutl/waypoint:1.0.0
+```
+
+This is the first tagged release; earlier `1.3.x` names were untagged development builds. The release APK uses version code 9 and a dedicated signing certificate. A debug-signed development APK cannot be updated in place with the release APK. Keep the existing installation until you are ready to configure a fresh release installation; uninstalling removes local configuration and Keystore data. See [release and upgrade notes](docs/releases/README.md).
+
 ## Server setup
 
 From a checkout, use Node.js 24+ to generate configuration:
 
 ```sh
 node scripts/setup.mjs --origin https://locator.example.com --device "My phone"
-docker compose up -d --build
+docker compose pull
+docker compose up -d --no-build
 ```
 
 The generator writes `.env` and `credentials.txt` with private file permissions. These files are ignored by Git. Open `credentials.txt` locally for the dashboard password and Android device token. Use the **device token**, not the dashboard password, in the Android app. The initial token creates the first device; add further devices in the dashboard.
+
+To build the server from the checkout instead of pulling the published image, run `docker compose up -d --build`. `WAYPOINT_IMAGE` optionally overrides the image reference.
 
 The default Compose setup binds HTTP to `127.0.0.1:8080`. Configure your existing HTTPS reverse proxy to forward to that address. Set `APP_ORIGIN` to the exact external HTTPS origin, without a trailing slash.
 
@@ -58,14 +71,15 @@ The default Compose setup binds HTTP to `127.0.0.1:8080`. Configure your existin
 Point a domain at the server, add `DOMAIN=locator.example.com` to `.env`, then run:
 
 ```sh
-docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d --build
+docker compose -f compose.yaml -f deploy/compose.caddy.yaml pull
+docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d --no-build
 ```
 
 Caddy obtains a certificate and proxies requests to the application. Ports 80 and 443 must be available. No Cloudflare account is needed.
 
 ### Dokploy or another container platform
 
-Build from `server/Dockerfile`, with **server/** as build context. Set the variables from `.env` in the platform, mount a persistent volume at `/app/data`, and route to container port **3000**. Use one replica. Logs, environment settings, restarts, and deployment remain under your platform’s control.
+Use `ghcr.io/ubaimutl/waypoint:1.0.0` as the container image, or build from `server/Dockerfile` with **server/** as build context. Set the variables from `.env` in the platform, mount a persistent volume at `/app/data`, and route to container port **3000**. Use one replica. Logs, environment settings, restarts, and deployment remain under your platform’s control.
 
 ### Optional Cloudflare Access
 
@@ -73,7 +87,7 @@ You may place a Tunnel and Access policy in front of the dashboard, but they are
 
 ## Android setup
 
-Build from `android/`, or install an APK built from the source:
+Install the signed APK from the release page. To build a debug APK from source:
 
 ```sh
 gradle -p android assembleDebug
@@ -94,7 +108,7 @@ Incoming SMS permission is needed only for the SMS fallback. The app does not ne
 
 ### Connection options
 
-**Built-in connection** keeps a TLS WebSocket open to your own server, with a persistent listening notification. No distributor or push provider is required. It verifies the full path to the Waypoint server with a small application heartbeat every 45 seconds, reconnecting after a missing acknowledgement or a default-network change. The notification includes the last verified time. Version 1.3.3 uses this single heartbeat instead of overlapping client and server protocol pings; older clients without application heartbeats retain server pings. Heartbeats do not request GPS. Android’s mobile-radio battery estimate can be dominated by frequent connection traffic even when location requests are rare. Queued requests are sent on reconnect while still valid. Android 1.3.2 requires a server with heartbeat acknowledgement support (server 1.3.2 or newer); upgrade the server before the APK. Your reverse proxy must support WebSocket upgrades at `/api/device/socket` (Caddy and Dokploy/Traefik normally handle this automatically). Android battery controls and network sleep can still delay delivery; a persistent service does not guarantee deep-Doze delivery.
+**Built-in connection** keeps a TLS WebSocket open to your own server, with a persistent listening notification. No distributor or push provider is required. It verifies the full path to the Waypoint server with a small application heartbeat every 45 seconds, reconnecting after a missing acknowledgement or a default-network change. The notification includes the last verified time. The v1.0.0 release uses this single heartbeat instead of overlapping client and server protocol pings; older clients without application heartbeats retain server pings. Heartbeats do not request GPS. Android’s mobile-radio battery estimate can be dominated by frequent connection traffic even when location requests are rare. Queued requests are sent on reconnect while still valid. The server must support heartbeat acknowledgements; use matching tagged releases and upgrade the server before the APK. Your reverse proxy must support WebSocket upgrades at `/api/device/socket` (Caddy and Dokploy/Traefik normally handle this automatically). Android battery controls and network sleep can still delay delivery; a persistent service does not guarantee deep-Doze delivery.
 
 **UnifiedPush distributor** shares the distributor connection with other compatible apps. Waypoint runs its location service only when needed. Switching modes stops the previous listener. **Internet off** leaves SMS and optional scheduled checks available.
 
@@ -136,7 +150,7 @@ Existing single-device installations migrate automatically and retain their orig
 
 ## Limits and privacy
 
-An offline or powered-off phone cannot report over the internet. Android and manufacturer battery controls may delay or block background execution. Internet delivery requires either the built-in background connection or a distributor connection; there is no measured battery guarantee. Indoor positioning may fail. Android 1.3.4 seeks a fresh fix with estimated accuracy within 20 meters, or sends the best available fresh fix after 65 seconds. A rough first network fix no longer ends acquisition immediately. GPS updates stop before the upload. This can increase the time and energy of an individual location request, without adding background tracking. The reported accuracy is an estimate, not a guarantee that the phone is inside that radius. Force-stopping the app disables its background receivers until it is reopened.
+An offline or powered-off phone cannot report over the internet. Android and manufacturer battery controls may delay or block background execution. Internet delivery requires either the built-in background connection or a distributor connection; there is no measured battery guarantee. Indoor positioning may fail. The Android release seeks a fresh fix with estimated accuracy within 20 meters, or sends the best available fresh fix after 65 seconds. A rough first network fix no longer ends acquisition immediately. GPS updates stop before the upload. This can increase the time and energy of an individual location request, without adding background tracking. The reported accuracy is an estimate, not a guarantee that the phone is inside that radius. Force-stopping the app disables its background receivers until it is reopened.
 
 The dashboard fetches map tiles from OpenStreetMap. The tile provider sees your browser’s IP and viewed map area. Replace the tile source/CSP if you require a privately hosted map. There is no analytics or automatic reverse geocoding.
 
