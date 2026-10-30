@@ -14,7 +14,14 @@ object Scheduling {
 }
 class CheckJob:JobService() {
  private var cancelled=AtomicBoolean(false)
- override fun onStartJob(p:JobParameters):Boolean { val flag=AtomicBoolean(false);cancelled=flag;Thread {Tracker.locate(this,false,null,flag);if(!flag.get())jobFinished(p,false)}.start();return true }
+ override fun onStartJob(p:JobParameters):Boolean {
+  if(ConnectionModes.current(this)=="builtin" && InternetRuntime.running && InternetRuntime.status=="Connected" &&
+   RecoveryTrafficPolicy.canSkipPoll(android.os.SystemClock.elapsedRealtime(),InternetRuntime.emptyConfirmedAt)){
+   InternetRuntime.skippedPolls++
+   android.util.Log.i("WaypointConnection","Scheduled HTTP poll skipped: origin recently confirmed an empty queue")
+   return false
+  }
+  val flag=AtomicBoolean(false);cancelled=flag;Thread {Tracker.locate(this,false,null,flag);if(!flag.get())jobFinished(p,false)}.start();return true }
  override fun onStopJob(p:JobParameters):Boolean {cancelled.set(true);return true}
 }
 class BootReceiver:BroadcastReceiver() {

@@ -1,8 +1,29 @@
 import {WebSocketServer,WebSocket} from 'ws';
+import {randomUUID} from 'node:crypto';
+import {performance} from 'node:perf_hooks';
 
-export function createBuiltinTransport(server,{authenticate,onConnect=()=>{},onContact=()=>{},hasPending=()=>false,heartbeatMs=60000,applicationIdleMs=180000}={}) {
+export function createBuiltinTransport(server,{authenticate,onConnect=()=>{},onContact=()=>{},hasPending=()=>false,onEvent=()=>{},heartbeatMs=60000,applicationIdleMs=600000,serverHeartbeatMs=120000,ackTimeoutMs=20000,closeGraceMs=5000}={}) {
  const hub=new WebSocketServer({noServer:true,maxPayload:1024,perMessageDeflate:false});
  const connections=new Map(),history=new Map();
+ const emit=(ws,event,extra={})=>onEvent({at:new Date().toISOString(),event,connectionId:ws.connectionId,ageMs:Math.round(performance.now()-ws.openedAt),...extra});
+ const stopTimers=ws=>{clearTimeout(ws.probeTimer);clearTimeout(ws.closeTimer);};
+ const close=(ws,code,reason,cause)=>{
+  if(ws.readyState!==WebSocket.OPEN)return;
+  clearTimeout(ws.probeTimer);ws.closeCause=cause;
+  emit(ws,'closing',{cause,idleMs:Math.round(performance.now()-(ws.lastApplicationHeartbeatAt??ws.openedAt))});
+  ws.close(code,reason);
+  ws.closeTimer=setTimeout(()=>ws.terminate(),closeGraceMs);ws.closeTimer.unref();
+ };
+ const schedule=ws=>{
+  clearTimeout(ws.probeTimer);
+  ws.probeTimer=setTimeout(()=>{
+   if(ws.readyState!==WebSocket.OPEN)return;
+   ws.promptedAt=performance.now();
+   ws.send(JSON.stringify({type:'heartbeat_due',version:1}));
+   ws.probeTimer=setTimeout(()=>close(ws,4002,'Heartbeat reply timed out','heartbeat_timeout'),ackTimeoutMs);
+   ws.probeTimer.unref();
+  },serverHeartbeatMs);ws.probeTimer.unref();
+ };
  const wake=(id='default')=>{
   const socket=connections.get(id);
   if(!socket || socket.readyState!==WebSocket.OPEN)return {state:'offline',error:'Built-in connection is offline. The queued request will be sent when it reconnects.'};
@@ -18,33 +39,48 @@ export function createBuiltinTransport(server,{authenticate,onConnect=()=>{},onC
   hub.handleUpgrade(req,socket,head,ws=>hub.emit('connection',ws,id));
  });
  hub.on('connection',(ws,id)=>{
-  connections.get(id)?.close(4001,'Replaced by a new connection');connections.set(id,ws);
+  const previous=connections.get(id);if(previous)close(previous,4001,'Replaced by a new connection','replaced');
+  connections.set(id,ws);ws.connectionId=randomUUID();ws.openedAt=performance.now();ws.heartbeats=0;
   history.set(id,{lastSentAt:null,lastConnectedAt:new Date().toISOString()});ws.alive=true;
-  ws.on('pong',()=>{ws.alive=true;onContact(id);});ws.on('error',()=>{});
-  // Application-level round trips prove the origin is reachable through a tunnel, not just its edge.
+  emit(ws,'open');
+  ws.on('pong',()=>{ws.alive=true;onContact(id);});
+  ws.on('error',()=>{ws.closeCause??='transport_error';});
   ws.on('message',(raw,binary)=>{
    if(binary || connections.get(id)!==ws || ws.readyState!==WebSocket.OPEN)return;
    let data;try{data=JSON.parse(raw.toString());}catch{return;}
    if(data?.type!=='heartbeat' || data.version!==1 || typeof data.nonce!=='string' || !/^[a-zA-Z0-9-]{1,80}$/.test(data.nonce))return;
-   ws.lastApplicationHeartbeatAt=Date.now();
-   ws.alive=true;onContact(id);ws.send(JSON.stringify({type:'heartbeat_ack',version:1,nonce:data.nonce}));
+   const now=performance.now(),gapMs=ws.lastApplicationHeartbeatAt===undefined?null:Math.round(now-ws.lastApplicationHeartbeatAt);
+   ws.lastApplicationHeartbeatAt=now;ws.heartbeats++;
+   // Opt-in keeps existing clients on their original client-timed protocol.
+   ws.serverHeartbeat ||= data.serverHeartbeat===true;
+   const reply={type:'heartbeat_ack',version:1,nonce:data.nonce};
+   if(ws.serverHeartbeat)Object.assign(reply,{serverHeartbeatMs,connectionId:ws.connectionId});
+   if(data.pendingState===true)reply.pending=!!hasPending(id);
+   ws.alive=true;onContact(id);ws.send(JSON.stringify(reply));
+   emit(ws,'verified',{heartbeats:ws.heartbeats,gapMs,promptReplyMs:ws.promptedAt===undefined?null:Math.round(now-ws.promptedAt),serverHeartbeat:!!ws.serverHeartbeat});
+   ws.promptedAt=undefined;
+   if(ws.serverHeartbeat)schedule(ws);
   });
-  ws.on('close',()=>{if(connections.get(id)===ws)connections.delete(id);});
+  ws.on('close',code=>{
+   stopTimers(ws);
+   emit(ws,'closed',{code,cause:ws.closeCause??'peer_closed',heartbeats:ws.heartbeats,idleMs:Math.round(performance.now()-(ws.lastApplicationHeartbeatAt??ws.openedAt))});
+   if(connections.get(id)===ws)connections.delete(id);
+  });
   onConnect(id);ws.send(JSON.stringify({type:'ready',version:1}));if(hasPending(id))wake(id);
  });
- // Modern clients already verify the origin. Avoid another radio wake-up for protocol pings.
- // Keep protocol pings for older clients; protocol pongs cannot extend application liveness.
+ // Negotiated clients have one server-paced application loop, never protocol pings.
  const heartbeat=setInterval(()=>{for(const socket of connections.values()){
+  if(socket.serverHeartbeat || socket.readyState!==WebSocket.OPEN)continue;
   if(socket.lastApplicationHeartbeatAt!==undefined){
-   if(Date.now()-socket.lastApplicationHeartbeatAt>=applicationIdleMs)socket.terminate();
+   if(performance.now()-socket.lastApplicationHeartbeatAt>=applicationIdleMs)close(socket,4003,'Application heartbeat idle','application_idle');
    continue;
   }
-  if(!socket.alive){socket.terminate();continue;}socket.alive=false;socket.ping();
+  if(!socket.alive){close(socket,4002,'Protocol pong timed out','protocol_timeout');continue;}socket.alive=false;socket.ping();
  }},heartbeatMs);heartbeat.unref();
  return {
   wake,
   status:(id='default')=>({connected:connections.get(id)?.readyState===WebSocket.OPEN,lastSentAt:null,lastConnectedAt:null,...history.get(id)}),
-  disconnect(id='default'){connections.get(id)?.terminate();connections.delete(id);history.delete(id);},
-  shutdown(){clearInterval(heartbeat);for(const socket of hub.clients)socket.terminate();hub.close();}
+  disconnect(id='default'){const ws=connections.get(id);if(ws){ws.closeCause='revoked';stopTimers(ws);ws.terminate();}connections.delete(id);history.delete(id);},
+  shutdown(){clearInterval(heartbeat);for(const ws of hub.clients){ws.closeCause='shutdown';stopTimers(ws);ws.terminate();}hub.close();}
  };
 }

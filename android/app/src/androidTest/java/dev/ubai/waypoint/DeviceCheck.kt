@@ -10,6 +10,21 @@ class DeviceCheck:Instrumentation() {
  override fun onCreate(arguments:Bundle?) {super.onCreate(arguments);mode=arguments?.getString("mode")?:"location";start()}
  override fun onStart() {
   try {
+   if(mode=="traffic-policy") {
+    val sent=1000000L
+    check(!RecoveryTrafficPolicy.canCoalesce(sent+109999,sent,0))
+    check(RecoveryTrafficPolicy.canCoalesce(sent+110000,sent,0))
+    check(RecoveryTrafficPolicy.canCoalesce(sent+118000,sent,0))
+    check(!RecoveryTrafficPolicy.canCoalesce(sent+118001,sent,0))
+    check(!RecoveryTrafficPolicy.canCoalesce(sent+115000,sent,sent-100000))
+    check(RecoveryTrafficPolicy.canCoalesce(sent+115000,sent,sent-485000))
+    check(!RecoveryTrafficPolicy.canCoalesce(sent+115000,0,0))
+    check(!RecoveryTrafficPolicy.canSkipPoll(sent,0))
+    check(!RecoveryTrafficPolicy.canSkipPoll(sent-1,sent))
+    check(RecoveryTrafficPolicy.canSkipPoll(sent+140000,sent))
+    check(!RecoveryTrafficPolicy.canSkipPoll(sent+140001,sent))
+    finish(Activity.RESULT_OK,Bundle().apply{putString("result","PASS: early window, cooldown, missing/stale/future queue confirmation boundaries")});return
+   }
    if(mode=="location-selection") {
     val start=200_000_000_000L
     fun fix(accuracy:Float,elapsed:Long=start,time:Long=10000)=android.location.Location("test").apply{
@@ -36,6 +51,23 @@ class DeviceCheck:Instrumentation() {
    sendStatus(1,Bundle().apply{putString("stage","Reading app configuration")})
    val context=targetContext
    val config=Config.read(context)?:error("Not provisioned")
+   if(mode=="traffic-live") {
+    check(ConnectionModes.current(context)=="builtin"){"This check requires the existing built-in mode"}
+    startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    val deadline=android.os.SystemClock.elapsedRealtime()+30000
+    while(android.os.SystemClock.elapsedRealtime()<deadline && InternetRuntime.emptyConfirmedAt==0L)Thread.sleep(100)
+    check(InternetRuntime.emptyConfirmedAt>0L){"No explicit empty-queue origin ACK received"}
+    val scheduler=context.getSystemService(android.app.job.JobScheduler::class.java)
+    val before=InternetRuntime.skippedPolls
+    try {
+     val job=android.app.job.JobInfo.Builder(102,android.content.ComponentName(context,CheckJob::class.java)).setOverrideDeadline(0).build()
+     check(scheduler.schedule(job)==android.app.job.JobScheduler.RESULT_SUCCESS)
+     val end=android.os.SystemClock.elapsedRealtime()+20000
+     while(android.os.SystemClock.elapsedRealtime()<end && InternetRuntime.skippedPolls==before)Thread.sleep(100)
+     check(InternetRuntime.skippedPolls==before+1){"Scheduled job did not skip its redundant HTTP poll"}
+    }finally{scheduler.cancel(102)}
+    finish(Activity.RESULT_OK,Bundle().apply{putString("result","PASS: real origin confirmed empty queue; real scheduled CheckJob skipped HTTP; user polling preference unchanged")});return
+   }
    if(mode=="connection-errors") {
     val original=JSONObject(config.toString())
     val originalMode=ConnectionModes.current(context)

@@ -166,9 +166,9 @@ class MainActivity:Activity() {
   serverValue.text=config?.optString("url")?:"No server configured"
   connectionStatus.text=when(ConnectionModes.current(this)){
    "builtin"->{
-    val status=state.getString("internetStatus","Not connected").orEmpty()
-    val last=state.getLong("internetVerifiedAt",0)
-    "Built-in · "+if(status.startsWith("Connected") && System.currentTimeMillis()-last>90000)"Connection check overdue" else status
+    val status=if(InternetRuntime.running)InternetRuntime.status else state.getString("internetStatus","Not connected").orEmpty()
+    val last=if(InternetRuntime.running)InternetRuntime.verifiedAt else state.getLong("internetVerifiedAt",0)
+    "Built-in · "+if(status.startsWith("Connected") && (!InternetRuntime.running || System.currentTimeMillis()-last>InternetRuntime.FRESHNESS))"Connection check overdue" else status
    }
    "unifiedpush"->"UnifiedPush · "+state.getString("pushStatus","Not registered")
    else->"Internet connection off"
