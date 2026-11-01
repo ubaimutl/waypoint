@@ -181,10 +181,10 @@ class InternetService:Service() {
     openedAt=SystemClock.elapsedRealtime();record("open")
     count("internetOpens");status("Verifying connection to your server…");lastProbeAt=0;handler.post(heartbeat)
     Thread{runCatching{
-     val fingerprint=java.security.MessageDigest.getInstance("SHA-256").digest((config.getString("url")+"|"+config.getString("token")+"|"+Build.MANUFACTURER+"|"+Build.MODEL).toByteArray()).joinToString(""){"%02x".format(it)}
+     val fingerprint=java.security.MessageDigest.getInstance("SHA-256").digest((config.getString("url")+"|"+config.getString("token")+"|"+Build.MANUFACTURER+"|"+Build.MODEL+"|ring-v1").toByteArray()).joinToString(""){"%02x".format(it)}
      val state=getSharedPreferences("state",0)
      if(state.getString("identitySynced",null)!=fingerprint){
-      Tracker.api(config,"/api/device/identity",JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL))
+      Tracker.api(config,"/api/device/identity",JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL).put("ring_supported",true))
       state.edit().putString("identitySynced",fingerprint).apply()
      }
     }}.start()
@@ -235,7 +235,7 @@ class InternetService:Service() {
   InternetRuntime.emptyConfirmedAt=0
   count("internetWakeups");checkpoint(true)
   Config.status(this,"Built-in wake-up received. Fetching server command…")
-  try{startForegroundService(Intent(this,LocateService::class.java))}
+  try{startForegroundService(Intent(this,CommandService::class.java))}
   catch(_:Exception){Config.status(this,"Request received. Allow background location and background activity to report.")}
  }
  private fun checkHeartbeat() {

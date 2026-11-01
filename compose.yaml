@@ -1,8 +1,10 @@
 services:
   waypoint:
-    image: ${WAYPOINT_IMAGE:-ghcr.io/ubaimutl/waypoint:1.0.0}
+    image: ${WAYPOINT_IMAGE:-ghcr.io/ubaimutl/waypoint:1.1.0}
     build:
       context: ./server
+      args:
+        VERSION: 1.1.0
     restart: unless-stopped
     init: true
     environment:

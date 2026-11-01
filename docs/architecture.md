@@ -6,6 +6,10 @@
 
 The dashboard uses a single scrypt-hashed password, secure HttpOnly/SameSite cookies, server-side sessions, and origin checks on writes. Failed logins are rate-limited. The phone uses a separate bearer device token. Each instance has one owner and up to 20 active devices. Device bearer tokens are independently revocable. Dashboard MFA is separate from device credentials.
 
+## Phone account access
+
+The current checkout adds a distinct account access token for reading locations and sending location/ring requests from Android. The server still has one owner account shared across its devices. Dashboard administration remains cookie-authenticated; background tracking remains device-token-authenticated. See [account preview protocol and access controls](account-preview.md) for enrollment, credential storage, revocation and migration.
+
 ## Device routes
 
 All device routes require `Authorization: Bearer <DEVICE_TOKEN>`.

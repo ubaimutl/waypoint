@@ -8,16 +8,27 @@ Self-hosted Android device locator with a web dashboard. Uses Google-free Androi
 
 ## Screenshots
 
-These screenshots use the local demo with a synthetic device and sample coordinates, not a real phone report. Screens may change during development.
+The v1.1.0 interface, captured from the local dashboard and the native app running in Waydroid. All devices and locations shown are samples.
 
-![Waypoint desktop dashboard showing a sample location and device status](docs/screenshots/dashboard-desktop.jpg)
+### Dashboard
 
-<details>
-<summary>Sign-in screen</summary>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dashboard-dark.jpg">
+  <img src="docs/screenshots/dashboard-light.jpg" alt="Waypoint dashboard with a compact device panel and map">
+</picture>
 
-![Waypoint dashboard sign-in screen in local demo mode](docs/screenshots/sign-in.jpg)
+### Android app
 
-</details>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/app-devices-dark.png">
+  <img src="docs/screenshots/app-devices-light.png" width="250" alt="Waypoint native app showing devices on a map">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/app-dark.png">
+  <img src="docs/screenshots/app-light.png" width="250" alt="Waypoint native app showing locate and play sound controls">
+</picture>
+
+Both interfaces support system, light and dark themes, with optional glass panels.
 
 ## How it works
 
@@ -31,6 +42,12 @@ The push provider receives an encrypted wake-up payload. Device credentials, loc
 
 This transport design follows the approach documented by [FMD](https://fmd-foss.org/docs/fmd-android/push/). Waypoint is an independent implementation and uses its own server protocol.
 
+## Battery usage
+
+Waypoint uses very little battery in our standby testing. It does not continuously track your location: location acquisition stops after each request. Battery usage varies with the phone, network, connection mode and scheduled checks.
+
+If you notice higher-than-expected battery drain, [open an issue](https://github.com/ubaimutl/waypoint/issues/new). Include your phone model, Android and Waypoint versions, connection mode, and a battery-usage screenshot.
+
 ## Requirements
 
 - Android 12 or newer; location enabled.
@@ -42,13 +59,15 @@ This transport design follows the approach documented by [FMD](https://fmd-foss.
 
 ## Release downloads
 
-Get the signed Android APK and checksums from [v1.0.0](https://github.com/ubaimutl/waypoint/releases/tag/v1.0.0). The server image supports Linux AMD64 and ARM64:
+Get the signed Android APK and checksums from [v1.1.0](https://github.com/ubaimutl/waypoint/releases/tag/v1.1.0). See [the release notes](docs/releases/v1.1.0.md) for changes and upgrade instructions. The server image supports Linux AMD64 and ARM64:
 
 ```sh
-docker pull ghcr.io/ubaimutl/waypoint:1.0.0
+docker pull ghcr.io/ubaimutl/waypoint:1.1.0
 ```
 
-This is the first tagged release; earlier `1.3.x` names were untagged development builds. The release APK uses version code 9 and a dedicated signing certificate. A debug-signed development APK cannot be updated in place with the release APK. Keep the existing installation until you are ready to configure a fresh release installation; uninstalling removes local configuration and Keystore data. See [release and upgrade notes](docs/releases/README.md).
+Android v1.1.0 uses version code 27, above both v1.0.0 (code 9) and the development previews. Official APK updates must retain the original release signing certificate. Debug-signed development APKs cannot update official release installs in place. See [release and upgrade notes](docs/releases/README.md).
+
+The checkout defaults to the v1.1.0 image. Build from source with `docker compose up -d --build`, or set `WAYPOINT_IMAGE` to select another version or digest.
 
 ## Server setup
 
@@ -79,13 +98,15 @@ Caddy obtains a certificate and proxies requests to the application. Ports 80 an
 
 ### Dokploy or another container platform
 
-Use `ghcr.io/ubaimutl/waypoint:1.0.0` as the container image, or build from `server/Dockerfile` with **server/** as build context. Set the variables from `.env` in the platform, mount a persistent volume at `/app/data`, and route to container port **3000**. Use one replica. Logs, environment settings, restarts, and deployment remain under your platform’s control.
+Use `ghcr.io/ubaimutl/waypoint:1.1.0` as the container image, or build from `server/Dockerfile` with **server/** as build context. Set the variables from `.env` in the platform, mount a persistent volume at `/app/data`, and route to container port **3000**. Use one replica. Logs, environment settings, restarts, and deployment remain under your platform’s control.
 
 ### Optional Cloudflare Access
 
 You may place a Tunnel and Access policy in front of the dashboard, but they are optional. Native Android requests must also pass your proxy. For Cloudflare Access, add a Service Auth policy and put its service token ID/secret in the Android app’s **optional Cloudflare Access settings**. Other reverse proxies need no Cloudflare headers. Do not use an interactive login page as the only route to `/api/device/*`.
 
 ## Android setup
+
+**New in v1.1.0:** Android can now sign in with the server address and dashboard credentials, enroll itself, and locate/ring other devices from a map inside the app. Native bottom navigation separates **Devices**, **This phone** and **Account**. See [the Android map details](docs/mobile-map-preview.md). The web dashboard shows all devices and can revoke a phone’s account access while keeping it trackable. See [account setup and access controls](docs/account-preview.md). Upgrade the server to v1.1.0 before the Android app to use these new features. Existing device-token setup remains supported. The manual token setup below remains available.
 
 Install the signed APK from the release page. To build a debug APK from source:
 
@@ -108,7 +129,7 @@ Incoming SMS permission is needed only for the SMS fallback. The app does not ne
 
 ### Connection options
 
-**Built-in connection** keeps a TLS WebSocket open to your own server, with a persistent listening notification. No distributor or push provider is required. It verifies the full path to the Waypoint server with a small application heartbeat every 45 seconds, reconnecting after a missing acknowledgement or a default-network change. The notification includes the last verified time. The v1.0.0 release uses this single heartbeat instead of overlapping client and server protocol pings; older clients without application heartbeats retain server pings. Heartbeats do not request GPS. Android’s mobile-radio battery estimate can be dominated by frequent connection traffic even when location requests are rare. Queued requests are sent on reconnect while still valid. The server must support heartbeat acknowledgements; use matching tagged releases and upgrade the server before the APK. Your reverse proxy must support WebSocket upgrades at `/api/device/socket` (Caddy and Dokploy/Traefik normally handle this automatically). Android battery controls and network sleep can still delay delivery; a persistent service does not guarantee deep-Doze delivery.
+**Built-in connection** keeps a TLS WebSocket open to your own server, with a persistent listening notification. No distributor or push provider is required. It verifies the full path to the Waypoint server with a small application heartbeat every two minutes in v1.1.0 (45 seconds in v1.0.0), reconnecting after a missing acknowledgement or a default-network change. The notification includes the last verified time. Version 1.1.0 also combines maintenance traffic when possible and skips redundant pending-request checks after the live connection confirms an empty queue. The v1.0.0 release uses this single heartbeat instead of overlapping client and server protocol pings; older clients without application heartbeats retain server pings. Heartbeats do not request GPS. Android’s mobile-radio battery estimate can be dominated by frequent connection traffic even when location requests are rare. Queued requests are sent on reconnect while still valid. The server must support heartbeat acknowledgements; use matching tagged releases and upgrade the server before the APK. Your reverse proxy must support WebSocket upgrades at `/api/device/socket` (Caddy and Dokploy/Traefik normally handle this automatically). Android battery controls and network sleep can still delay delivery; a persistent service does not guarantee deep-Doze delivery.
 
 **UnifiedPush distributor** shares the distributor connection with other compatible apps. Waypoint runs its location service only when needed. Switching modes stops the previous listener. **Internet off** leaves SMS and optional scheduled checks available.
 
@@ -124,13 +145,13 @@ A provider accepting a push is shown as **Push accepted by provider**, not as de
 
 Use **Add device** to choose a name and generate unique device credentials. The dashboard asks for your password and, when enabled, your authenticator or recovery code. Copy the HTTPS server URL and token into that phone’s **Connection → Edit** screen. The token is displayed only at creation. Android reports its manufacturer and model automatically; the chosen name stays editable in **Manage device**. These hardware labels identify a device for the owner; they are not hardware attestation.
 
-Select a device to see its own reports, battery reading, connection, and requests. **Revoke device** disables that credential immediately, disconnects its listener, removes its push subscription, and cancels pending commands. It does not affect other devices. Its history remains stored. Revoked credentials cannot be enabled again by restarting the server. A new registration gets a new token.
+Select a device to see its own reports, battery reading, connection, and requests. **Remove tracking access** disables that credential immediately, disconnects its listener, removes its push subscription, and cancels pending commands. It does not affect other devices. Its history remains stored. Revoked credentials cannot be enabled again by restarting the server. A new registration gets a new token.
 
 Open **Security → Set up two-factor authentication**, confirm your dashboard password, and scan the QR code with a compatible authenticator (or enter the setup key). Enter a current six-digit code to activate it. Save the ten recovery codes immediately; each works once with your password, and they cannot be displayed again. Keep the authenticator or a backup separately from the phone being tracked. 2FA is optional until the owner enrolls, and is enforced for all subsequent dashboard logins once enabled. Passkeys are not implemented in this release.
 
 Enabling or disabling 2FA signs out other browsers and rotates the current session. **Sign out other browsers** is available in Security. Sessions expire after 12 hours. Password login and sensitive operations share a persistent limit of eight failed authentication attempts per 15 minutes. Location requests and wake-up retries are limited per device. Previously accepted authenticator codes cannot be replayed; wait for the next code when confirming another sensitive action.
 
-Android uses only its device token; it never completes browser 2FA. HTTPS and built-in authentication work independently of the reverse proxy. Caddy, Cloudflare Tunnel/Access, private VPNs such as Tailscale/Headscale, and other tunnels such as Pangolin are deployment choices. An external gateway must still allow authenticated device API and WebSocket traffic. A VPN is not required. An HTTPS reverse proxy on the same server does not conceal that server’s public IP.
+Background tracking uses only its device token. The optional phone account sign-in uses the dashboard password and configured second factor to obtain a separate account credential. HTTPS and built-in authentication work independently of the reverse proxy. Caddy, Cloudflare Tunnel/Access, private VPNs such as Tailscale/Headscale, and other tunnels such as Pangolin are deployment choices. An external gateway must still allow authenticated device API and WebSocket traffic. A VPN is not required. An HTTPS reverse proxy on the same server does not conceal that server’s public IP.
 
 If the authenticator and recovery codes are both lost, someone with server filesystem access can run:
 
@@ -150,7 +171,7 @@ Existing single-device installations migrate automatically and retain their orig
 
 ## Limits and privacy
 
-An offline or powered-off phone cannot report over the internet. Android and manufacturer battery controls may delay or block background execution. Internet delivery requires either the built-in background connection or a distributor connection; there is no measured battery guarantee. Indoor positioning may fail. The Android release seeks a fresh fix with estimated accuracy within 20 meters, or sends the best available fresh fix after 65 seconds. A rough first network fix no longer ends acquisition immediately. GPS updates stop before the upload. This can increase the time and energy of an individual location request, without adding background tracking. The reported accuracy is an estimate, not a guarantee that the phone is inside that radius. Force-stopping the app disables its background receivers until it is reopened.
+An offline or powered-off phone cannot report over the internet. Android and manufacturer battery controls may delay or block background execution. Internet delivery requires either the built-in background connection or a distributor connection. Indoor positioning may fail. The Android release seeks a fresh fix with estimated accuracy within 20 meters, or sends the best available fresh fix after 65 seconds. A rough first network fix no longer ends acquisition immediately. GPS updates stop before the upload. This can increase the time and energy of an individual location request, without adding background tracking. The reported accuracy is an estimate, not a guarantee that the phone is inside that radius. Force-stopping the app disables its background receivers until it is reopened.
 
 The dashboard fetches map tiles from OpenStreetMap. The tile provider sees your browser’s IP and viewed map area. Replace the tile source/CSP if you require a privately hosted map. There is no analytics or automatic reverse geocoding.
 
@@ -170,3 +191,7 @@ Local demo: http://localhost:3000, password `waypoint-demo`. Never publish demo 
 Android: JDK 17+, Android SDK 36, and Gradle 9.6+ compatible with Android Gradle Plugin 9.4.1. The included build uses the official UnifiedPush connector. Development APKs are debug-signed; use your own release signing key for distribution and retain it for updates. No signing key is included.
 
 See [architecture and API](docs/architecture.md), [security](SECURITY.md), and [third-party notices](NOTICE).
+
+## Version 1.1.0
+
+Version 1.1.0 includes battery-maintenance improvements, remote ringing, account sign-in, and multi-device maps in the app and dashboard. These features require matching Android and server builds. See [ringing](docs/ringing-preview.md), [account access](docs/account-preview.md), [Android maps](docs/mobile-map-preview.md), and [dashboard appearance](docs/dashboard-preview.md) for feature details.

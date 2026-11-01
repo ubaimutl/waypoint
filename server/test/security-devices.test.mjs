@@ -43,7 +43,7 @@ test('multi-device isolation, revocation, MFA login enforcement and session rota
   await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>reject(new Error(`Server exited ${code}: ${errors}`)));child.stdout.on('data',chunk=>{if(chunk.toString().includes('listening'))resolve();});});
  };
  const stop=async()=>{const exit=once(child,'exit');child.kill('SIGTERM');await exit;};
- const request=(route,{data,device,session=cookie,headers={}}={})=>fetch('http://127.0.0.1:3199'+route,{method:data===undefined?'GET':'POST',headers:{...(data===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...(session?{Cookie:session}:{}),...(device?{Authorization:'Bearer '+device}:{}),...headers},body:data===undefined?undefined:JSON.stringify(data)});
+ const request=(route,{data,device,session=cookie,headers={}}={})=>fetch('http://127.0.0.1:3199'+route,{method:data===undefined?'GET':'POST',headers:{Connection:'close',...(data===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...(session?{Cookie:session}:{}),...(device?{Authorization:'Bearer '+device}:{}),...headers},body:data===undefined?undefined:JSON.stringify(data)});
  const login=async(code)=>{const result=await request('/api/login',{data:{password,code},session:''});if(result.headers.get('set-cookie'))cookie=result.headers.get('set-cookie').split(';')[0];return result;};
  try{
   await start();await login();let added,firstCommand,secondCommand,report;

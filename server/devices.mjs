@@ -3,6 +3,7 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 export function createDevices(db,vault,{bootstrapToken='',bootstrapName='My phone'}={}) {
  db.exec(`CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY,name TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,token_cipher TEXT NOT NULL,created_at TEXT NOT NULL,revoked_at TEXT,model TEXT,manufacturer TEXT,last_seen TEXT,transport TEXT NOT NULL DEFAULT 'off',last_request_at INTEGER NOT NULL DEFAULT 0,last_wake_at INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS push_subscriptions (device_id TEXT PRIMARY KEY,endpoint TEXT,p256dh TEXT,auth TEXT,updated_at TEXT,state TEXT,last_error TEXT,last_sent_at TEXT);`);
+ if(!db.prepare('PRAGMA table_info(devices)').all().some(c=>c.name==='ring_supported'))db.exec('ALTER TABLE devices ADD COLUMN ring_supported INTEGER NOT NULL DEFAULT 0');
  if(bootstrapToken){
   const old=db.prepare("SELECT * FROM devices WHERE id='legacy'").get();
   if(!old) {
@@ -21,7 +22,7 @@ export function createDevices(db,vault,{bootstrapToken='',bootstrapName='My phon
  return {
   get,
   authenticate(req){const value=req.headers.authorization;if(!value?.startsWith('Bearer ') || value.length>520)return null;return db.prepare('SELECT * FROM devices WHERE token_hash=? AND revoked_at IS NULL').get(hash(value.slice(7))) || null;},
-  list(){return db.prepare('SELECT id,name,model,manufacturer,last_seen,created_at,revoked_at,transport FROM devices ORDER BY created_at,id').all();},
+  list(){return db.prepare('SELECT id,name,model,manufacturer,last_seen,created_at,revoked_at,transport,ring_supported FROM devices ORDER BY created_at,id').all();},
   create(name){if(db.prepare('SELECT count(*) AS n FROM devices WHERE revoked_at IS NULL').get().n>=20)throw Object.assign(new Error('Limit of 20 active devices reached.'),{status:409});const id=randomBytes(16).toString('hex'),token=randomBytes(32).toString('hex');db.prepare('INSERT INTO devices(id,name,token_hash,token_cipher,created_at) VALUES(?,?,?,?,?)').run(id,name,hash(token),vault.seal(token),new Date().toISOString());return {id,name,token};},
   token(id){return vault.open(get(id).token_cipher);},
   touch(id){db.prepare('UPDATE devices SET last_seen=? WHERE id=? AND revoked_at IS NULL').run(new Date().toISOString(),id);}

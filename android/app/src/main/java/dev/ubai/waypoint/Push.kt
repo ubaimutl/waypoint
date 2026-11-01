@@ -48,6 +48,7 @@ object PushSetup {
    try {
     val config=Config.read(context)?:return@Thread
     val saved=config.optJSONObject("pushSubscription")?:return@Thread
+    Tracker.api(config,"/api/device/identity",JSONObject().put("manufacturer",android.os.Build.MANUFACTURER).put("model",android.os.Build.MODEL).put("ring_supported",true))
     Tracker.api(config,"/api/device/transport",JSONObject().put("mode","unifiedpush"))
     Tracker.api(config,"/api/device/push-subscription",saved)
     state(context,"Internet push registered")
@@ -81,7 +82,7 @@ class PushHandler:PushService() {
   if(System.currentTimeMillis()-state.getLong("lastPush",0)<10000)return
   state.edit().putLong("lastPush",System.currentTimeMillis()).apply()
   Config.status(this,"Internet push received. Fetching server command…")
-  try {startForegroundService(Intent(this,LocateService::class.java))}
+  try {startForegroundService(Intent(this,CommandService::class.java))}
   catch(_:Exception){Config.status(this,"Push arrived, but Android blocked location. Open Waypoint and check background permissions.")}
  }
  override fun onRegistrationFailed(reason:FailedReason,instance:String) {if(current(instance))PushSetup.state(this,"Push registration failed: ${reason.name}")}

@@ -1,4 +1,6 @@
 import http from 'node:http';
+import {createRinging} from './ring.mjs';
+import {createMobileAccess} from './mobile.mjs';
 import webpush from 'web-push';
 import { createVault } from './vault.mjs';
 import { createDevices } from './devices.mjs';
@@ -39,6 +41,9 @@ const sha = value => createHash('sha256').update(value).digest('hex');
 const constantEqual = (a, b) => timingSafeEqual(Buffer.from(sha(a)), Buffer.from(sha(b)));
 const vault=createVault(dataDir);
 const devices=createDevices(db,vault,{bootstrapToken:deviceToken,bootstrapName:process.env.DEVICE_NAME || 'My phone'});
+const ringing=createRinging(db);
+const mobileAccess=createMobileAccess(db,{passwordFingerprint:sha(passwordHash || 'demo')});
+const listDevices=()=>devices.list().map(device=>({...device,account_access:mobileAccess.status(device.id),report:db.prepare('SELECT lat,lng,accuracy,battery,charging,recorded_at,received_at FROM reports WHERE device_id=? ORDER BY id DESC LIMIT 1').get(device.id) || null}));
 const security=createSecurity(db,vault,{origin,passwordFingerprint:sha(passwordHash || 'demo')});
 const storedVapid = db.prepare("SELECT value FROM settings WHERE key='vapid'").get();
 const vapidKeys = storedVapid ? JSON.parse(storedVapid.value) : webpush.generateVAPIDKeys();
@@ -136,13 +141,54 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   try {
     const url = new URL(req.url, 'http://localhost');
-    const route = url.pathname;
+    let route = url.pathname;
+    const mobileRoute=route.startsWith('/api/mobile/');
+    const mobileLogin=route==='/api/mobile/sign-in';
+    const controller=mobileRoute && !mobileLogin?mobileAccess.authenticate(req):null;
+    if(mobileRoute && req.headers.origin && req.headers.origin!==origin)return json(res,403,{error:'Origin not allowed'});
+    if(mobileRoute && !mobileLogin && !controller)return json(res,401,{error:'Account access expired or revoked. Sign in again.'});
+    if(mobileRoute && !mobileLogin){
+     const allowed={'GET /api/mobile/devices':'/api/devices','GET /api/mobile/dashboard':'/api/dashboard','POST /api/mobile/locate':'/api/locate','POST /api/mobile/ring':'/api/ring'};
+     const mapped=allowed[req.method+' '+route];
+     if(req.method==='POST' && route==='/api/mobile/sign-out'){mobileAccess.revoke(controller.device_id);return json(res,200,{ok:true});}
+     if(!mapped)return json(res,403,{error:'This action requires the dashboard.'});
+     route=mapped;
+    }
     if (req.method === 'GET' && route === '/healthz') return json(res, 200, { ok: true });
     const deviceRoute=route.startsWith('/api/device/');
     const device=deviceRoute && !demo?devices.authenticate(req):null;
     if(deviceRoute && !device)return json(res,401,{error:'Invalid or revoked device token'});
     if(device)devices.touch(device.id);
-    if(req.method==='POST' && !deviceRoute && req.headers.origin!==origin)return json(res,403,{error:'Origin not allowed'});
+    if(req.method==='POST' && !deviceRoute && !mobileRoute && req.headers.origin!==origin)return json(res,403,{error:'Origin not allowed'});
+    if(req.method==='POST' && mobileLogin){
+     if(demo)return json(res,409,{error:'Phone sign-in is unavailable in demo mode.'});
+     authLimit(res);const input=await body(req),name=deviceName(input.name);
+     if(input.installation_id!==undefined && (typeof input.installation_id!=='string' || !/^[a-f0-9]{32}$/.test(input.installation_id)))return json(res,400,{error:'Invalid installation identifier.'});
+     if(typeof input.password!=='string' || input.password.length>1024 || !checkPassword(input.password)){failedAuth();return json(res,401,{error:'Incorrect password or verification code.'});}
+     if(security.enabled() && !input.code)return json(res,200,{requiresTwoFactor:true});
+     if(!await security.validate(input.code)){failedAuth();return json(res,401,{error:'Incorrect password or verification code.'});}
+     db.exec('DELETE FROM attempts');
+     // Reuse a previously enrolled phone only after both account and tracking authentication.
+     let enrolled;
+     if(input.device_token!==undefined){
+      if(typeof input.device_token!=='string')return json(res,400,{error:'Invalid existing device credential.'});
+      const existing=devices.authenticate({headers:{authorization:'Bearer '+input.device_token}});
+      if(!existing)return json(res,409,{error:'This phone registration was revoked. Remove the old connection settings before enrolling again.'});
+      enrolled={id:existing.id,name:existing.name,token:input.device_token};
+     }
+     if(!enrolled && input.installation_id){
+      const previous=devices.get(mobileAccess.enrollment(input.installation_id) || '');
+      if(previous && !previous.revoked_at)enrolled={id:previous.id,name:previous.name,token:devices.token(previous.id)};
+     }
+     db.exec('BEGIN');
+     try{
+      enrolled ||= devices.create(name);
+      if(input.installation_id)mobileAccess.remember(input.installation_id,enrolled.id);
+      const accessToken=mobileAccess.issue(enrolled.id);
+      db.exec('COMMIT');
+      return json(res,200,{device:enrolled,access_token:accessToken,url:origin});
+     }catch(error){db.exec('ROLLBACK');throw error;}
+    }
     if(req.method==='GET' && route==='/api/session')return json(res,200,{authenticated:!!session(req),demo,deviceName:'My phone'});
     if(req.method==='POST' && route==='/api/login') {
      authLimit(res);const input=await body(req);
@@ -151,7 +197,7 @@ const server = http.createServer(async (req, res) => {
      if(!await security.validate(input.code)){failedAuth();return json(res,401,{error:'Incorrect password or verification code.'});}
      db.exec('DELETE FROM attempts');issueSession(res);return json(res,200,{ok:true});
     }
-    if (route.startsWith('/api/') && !deviceRoute && !session(req)) return json(res, 401, { error: 'Please sign in.' });
+    if (route.startsWith('/api/') && !deviceRoute && !controller && !session(req)) return json(res, 401, { error: 'Please sign in.' });
     if (req.method === 'POST' && route === '/api/logout') {
       const token = req.headers.cookie?.match(/waypoint_session=([a-f0-9]{64})/)?.[1];
       if (token) db.prepare('DELETE FROM sessions WHERE token=?').run(sha(token));
@@ -166,16 +212,16 @@ const server = http.createServer(async (req, res) => {
     if(req.method==='POST' && route==='/api/security/confirm') {
      authLimit(res);const input=await body(req);let result;
      try{result=await security.confirm(session(req).token,input.code);}catch(error){failedAuth();throw error;}
-     db.exec('DELETE FROM attempts');issueSession(res);return json(res,200,result);
+     db.exec("DELETE FROM attempts; UPDATE mobile_access SET revoked_at=datetime('now') WHERE revoked_at IS NULL");issueSession(res);return json(res,200,result);
     }
     if(req.method==='POST' && route==='/api/security/disable') {
      if(demo)return json(res,409,{error:'Security settings are unavailable in demo mode.'});
-     await reauthenticate(await body(req),res);security.disable();issueSession(res);return json(res,200,{ok:true});
+     await reauthenticate(await body(req),res);security.disable();db.exec("UPDATE mobile_access SET revoked_at=datetime('now') WHERE revoked_at IS NULL");issueSession(res);return json(res,200,{ok:true});
     }
     if(req.method==='POST' && route==='/api/security/revoke-sessions') {
      await reauthenticate(await body(req),res);db.prepare('DELETE FROM sessions WHERE token<>?').run(session(req).token);return json(res,200,{ok:true});
     }
-    if(req.method==='GET' && route==='/api/devices')return json(res,200,{devices:devices.list()});
+    if(req.method==='GET' && route==='/api/devices')return json(res,200,{devices:listDevices().filter(d=>!controller || !d.revoked_at).map(d=>controller?{...d,push:pushStatus(d.id)}:d)});
     if(req.method==='POST' && route==='/api/devices/add') {
      if(demo)return json(res,409,{error:'Device management is unavailable in demo mode.'});
      const input=await body(req),name=deviceName(input.name);await reauthenticate(input,res);
@@ -188,6 +234,13 @@ const server = http.createServer(async (req, res) => {
      if(!saved || saved.revoked_at)return json(res,404,{error:'Device not found.'});
      db.prepare('UPDATE devices SET name=? WHERE id=?').run(name,saved.id);return json(res,200,{ok:true});
     }
+    if(req.method==='POST' && route==='/api/devices/revoke-access'){
+     if(demo)return json(res,409,{error:'Device management is unavailable in demo mode.'});
+     const input=await body(req);await reauthenticate(input,res);
+     const saved=devices.get(input.device_id || '');
+     if(!saved || saved.revoked_at)return json(res,404,{error:'Device not found.'});
+     mobileAccess.revoke(saved.id);return json(res,200,{ok:true});
+    }
     if(req.method==='POST' && route==='/api/devices/revoke') {
      if(demo)return json(res,409,{error:'Device management is unavailable in demo mode.'});
      const input=await body(req);await reauthenticate(input,res);const saved=devices.get(input.device_id || '');
@@ -195,7 +248,7 @@ const server = http.createServer(async (req, res) => {
      db.prepare("UPDATE devices SET revoked_at=?,transport='off' WHERE id=?").run(now(),saved.id);
      db.prepare('DELETE FROM push_subscriptions WHERE device_id=?').run(saved.id);
      db.prepare("UPDATE commands SET status='cancelled' WHERE device_id=? AND status='queued'").run(saved.id);
-     builtin.disconnect(saved.id);return json(res,200,{ok:true});
+     mobileAccess.revoke(saved.id);ringing.revoke(saved.id);builtin.disconnect(saved.id);return json(res,200,{ok:true});
     }
     const defaultDevice=()=>devices.list().find(d=>!d.revoked_at);
     const selectDevice=id=>{
@@ -206,11 +259,21 @@ const server = http.createServer(async (req, res) => {
      expireCommands();const selected=url.searchParams.has('device')?selectDevice(url.searchParams.get('device')):defaultDevice();
      const id=selected?.id || '';
      const reports=db.prepare('SELECT * FROM reports WHERE device_id=? ORDER BY id DESC LIMIT 20').all(id);
-     return json(res,200,{demo,device:devices.list().find(item=>item.id===id) || null,devices:devices.list(),report:demo?fakeReport:reports[0] || null,reports:demo?[fakeReport]:reports,push:pushStatus(id),commands:db.prepare('SELECT * FROM commands WHERE device_id=? ORDER BY created_at DESC LIMIT 15').all(id)});
+     return json(res,200,{demo,device:listDevices().find(item=>item.id===id) || null,devices:listDevices(),report:demo?fakeReport:reports[0] || null,reports:demo?[fakeReport]:reports,push:pushStatus(id),ring:ringing.get(id),commands:db.prepare('SELECT * FROM commands WHERE device_id=? ORDER BY created_at DESC LIMIT 15').all(id)});
     }
+    const checkController=()=>{if(controller && !mobileAccess.authenticate(req))throw Object.assign(new Error('Account access was revoked. Sign in again.'),{status:401});};
+    if(req.method==='POST' && route==='/api/ring') {
+     if(demo)return json(res,409,{error:'Ringing is unavailable in demo mode.'});
+     const input=await body(req);checkController();const selected=selectDevice(input.device_id);
+     if(!selected.ring_supported)return json(res,409,{error:'Update and connect the Android app to enable ringing.'});
+     const ring=ringing.request(selected.id,input);
+     const push=input.action==='stop' && transportMode(selected.id)==='builtin'?builtin.wake(selected.id):await sendWake(selected.id);
+     return json(res,201,{ring,push});
+    }
+    if(req.method==='POST' && route==='/api/device/ring-status')return json(res,200,{ring:ringing.acknowledge(device.id,await body(req))});
     if(req.method==='POST' && route==='/api/locate') {
      if(demo)return json(res,409,{error:'Location requests are unavailable in demo mode.'});
-     const selected=selectDevice((await body(req)).device_id);expireCommands();
+     const input=await body(req);checkController();const selected=selectDevice(input.device_id);expireCommands();
      const pending=db.prepare("SELECT * FROM commands WHERE device_id=? AND status='queued'").get(selected.id);
      if(pending)return json(res,200,{...pending,push:await sendWake(selected.id)});
      if(Date.now()-devices.get(selected.id).last_request_at<10000)return json(res,429,{error:'Wait 10 seconds between location requests.'});
@@ -234,7 +297,7 @@ const server = http.createServer(async (req, res) => {
     if(req.method==='POST' && route==='/api/device/identity') {
      const input=await body(req);
      for(const key of ['model','manufacturer'])if(typeof input[key]!=='string' || input[key].length>100 || /[\x00-\x1f\x7f]/.test(input[key]))return json(res,400,{error:'Invalid device identity.'});
-     db.prepare('UPDATE devices SET model=?,manufacturer=? WHERE id=?').run(input.model,input.manufacturer,device.id);
+     db.prepare('UPDATE devices SET model=?,manufacturer=?,ring_supported=? WHERE id=?').run(input.model,input.manufacturer,input.ring_supported===true?1:0,device.id);
      return json(res,200,{id:device.id,name:device.name});
     }
     if (req.method === 'GET' && route === '/api/device/push-info') return json(res,200,{publicKey:vapidKeys.publicKey});
@@ -266,7 +329,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && route === '/api/device/commands') {
       expireCommands();
-      return json(res, 200, { command: db.prepare("SELECT id,created_at,'locate' AS type FROM commands WHERE device_id=? AND status='queued' LIMIT 1").get(device.id) || null });
+      return json(res, 200, { ring: ringing.pending(device.id), command: db.prepare("SELECT id,created_at,'locate' AS type FROM commands WHERE device_id=? AND status='queued' LIMIT 1").get(device.id) || null });
     }
     if (req.method === 'POST' && route === '/api/device/report') {
       const input = await body(req);
@@ -287,7 +350,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 201, { ok: true });
     }
     if (req.method === 'GET' && !route.startsWith('/api/')) {
-      const files = { '/': ['public/index.html','text/html; charset=utf-8'], '/app.js': ['public/app.js','text/javascript'], '/style.css': ['public/style.css','text/css'], '/vendor/leaflet.js': ['node_modules/leaflet/dist/leaflet.js','text/javascript'], '/vendor/leaflet.css': ['node_modules/leaflet/dist/leaflet.css','text/css'] };
+      const files = { '/': ['public/index.html','text/html; charset=utf-8'], '/app.js': ['public/app.js','text/javascript'], '/style.css': ['public/style.css','text/css'], '/theme.js': ['public/theme.js','text/javascript'], '/vendor/leaflet.js': ['node_modules/leaflet/dist/leaflet.js','text/javascript'], '/vendor/leaflet.css': ['node_modules/leaflet/dist/leaflet.css','text/css'] };
       if (files[route]) { const [file,type] = files[route]; res.writeHead(200, { 'Content-Type': type }); return res.end(readFileSync(path.join(root,file))); }
     }
     json(res, 404, { error: 'Not found' });
@@ -297,7 +360,7 @@ builtin=createBuiltinTransport(server,{
  authenticate:req=>!demo && (!req.headers.origin || req.headers.origin===origin) && devices.authenticate(req)?.id,
  onConnect:id=>{db.prepare("UPDATE devices SET transport='builtin' WHERE id=?").run(id);devices.touch(id);},
  onContact:id=>devices.touch(id),
- hasPending:id=>{expireCommands();return !!db.prepare("SELECT id FROM commands WHERE device_id=? AND status='queued'").get(id);}
+ hasPending:id=>{expireCommands();return !!ringing.pending(id) || !!db.prepare("SELECT id FROM commands WHERE device_id=? AND status='queued'").get(id);}
 });
 server.requestTimeout = 15000;
 server.headersTimeout = 10000;

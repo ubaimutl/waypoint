@@ -55,6 +55,24 @@ test('production authentication, command lifecycle, and location storage', async
       assert.equal((await request('/api/device/push-subscription',{device:true,data:{endpoint:'http://localhost',keys:{}}})).status,400);
       const data=await (await request('/api/dashboard',{auth:true})).json();assert.equal(data.push.registered,false);assert.ok(!JSON.stringify(data.push).includes('endpoint'));
     });
+    await t.test('ring routes require authentication and device capability; stop supersedes queued sound',async()=>{
+      const start={action:'start',duration:30,volume:75,vibrate:true};
+      assert.equal((await request('/api/ring',{data:start})).status,401);
+      assert.equal((await request('/api/ring',{auth:true,data:start,headers:{Origin:'https://evil.test'}})).status,403);
+      assert.equal((await request('/api/ring',{auth:true,data:start})).status,409);
+      assert.equal((await request('/api/device/identity',{device:true,data:{model:'Test',manufacturer:'Test',ring_supported:true}})).status,200);
+      assert.equal((await request('/api/ring',{auth:true,data:{...start,duration:999}})).status,400);
+      const queued=await (await request('/api/ring',{auth:true,data:start})).json();
+      assert.equal(queued.ring.status,'queued');
+      const fetched=await (await request('/api/device/commands',{device:true})).json();assert.equal(fetched.ring.id,queued.ring.id);assert.equal(fetched.command,null);
+      assert.equal((await request('/api/device/ring-status',{auth:true,data:{id:queued.ring.id,status:'playing'}})).status,401);
+      assert.equal((await request('/api/device/ring-status',{device:true,data:{id:queued.ring.id,status:'playing'}})).status,200);
+      const dashboard=await (await request('/api/dashboard',{auth:true})).json();assert.equal(dashboard.ring.status,'playing');
+      const stop=await (await request('/api/ring',{auth:true,data:{action:'stop'}})).json();assert.notEqual(stop.ring.id,queued.ring.id);
+      assert.equal((await request('/api/device/ring-status',{device:true,data:{id:queued.ring.id,status:'playing'}})).status,409);
+      assert.equal((await request('/api/device/ring-status',{device:true,data:{id:stop.ring.id,status:'stopped'}})).status,200);
+      assert.equal((await (await request('/api/device/commands',{device:true})).json()).ring,null);
+    });
     let command;
     await t.test('locate is idempotent while pending and visible to device',async () => {
       const response=await request('/api/locate',{data:{},auth:true});assert.equal(response.status,201);command=await response.json();

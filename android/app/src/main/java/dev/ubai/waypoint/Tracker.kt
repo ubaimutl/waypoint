@@ -47,7 +47,9 @@ object Tracker {
   if(!busy.compareAndSet(false,true)) return
   try {
    val config=Config.read(context)?:throw IllegalStateException("Connect your server first.")
-   val command=api(config,"/api/device/commands").optJSONObject("command")
+   val response=api(config,"/api/device/commands")
+   RingCommands.handle(context,response.optJSONObject("ring"))
+   val command=response.optJSONObject("command")
    if(expected!=null && command?.optString("id")!=expected) { Config.status(context,"Wake-up ignored: request is no longer pending.");return }
    if(command==null && !manual) { Config.status(context,"Checked for requests. None pending.");return }
    if(cancelled.get()) return

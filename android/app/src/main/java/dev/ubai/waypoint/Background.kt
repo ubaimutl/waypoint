@@ -44,7 +44,7 @@ class SmsReceiver:BroadcastReceiver() {
    if(!used.add(m.groupValues[3]))return
    state.edit().putStringSet("consumed",used.toList().takeLast(32).toSet()).commit()
    Config.status(c,"Authenticated SMS received. Requesting location…")
-   try {c.startForegroundService(Intent(c,LocateService::class.java).putExtra("command",m.groupValues[2]))}
+   try {c.startForegroundService(Intent(c,CommandService::class.java).putExtra("command",m.groupValues[2]))}
    catch(_:Exception){Config.status(c,"Android blocked background location. Open Waypoint or enable fallback checks.")}
   }catch(_:Exception){ /* Ignore malformed and unrelated SMS. */ }
  }

@@ -2,13 +2,17 @@
 
 Waypoint is under active development and testing. A packaged release does not establish multi-device reliability, a battery guarantee, or an independent security audit.
 
+## Version 1.1.0
+
+Version 1.1.0 uses Android version code 27 and the same release signing certificate as v1.0.0. See [the release notes](v1.1.0.md) for features and upgrade instructions. Upgrade the server before Android to use account access, maps, and ringing. The versioned Docker image supports Linux AMD64 and ARM64.
+
 ## Install a release
 
 Download the APK and `SHA256SUMS` from the matching GitHub release. Check the download before installing:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
-adb install waypoint-1.0.0.apk
+adb install -r waypoint-1.1.0.apk
 ```
 
 Only public APKs signed with the same release certificate can update each other in place. The release APK is not debuggable. Configure the server and device credentials on first use.
@@ -19,14 +23,14 @@ Debug APKs and self-signed APKs use different certificates. Android rejects an i
 
 ## Upgrade a server
 
-Back up the entire persistent data volume, including `secrets.key`, with a SQLite-aware backup or while the container is stopped. Keep the existing environment values and volume. Change the image version, pull, and recreate:
+Back up the entire persistent data volume, including `secrets.key`, with a SQLite-aware backup or while the container is stopped. Keep the existing environment values and volume. For v1.1.0, upgrade the server before the Android app. Existing credentials, reports, and manual token setup remain supported; the new database fields and tables are additive. Change the image version, pull, and recreate:
 
 ```sh
 docker compose pull
 docker compose up -d --no-build
 ```
 
-The default image is pinned to `ghcr.io/ubaimutl/waypoint:1.0.0`; `WAYPOINT_IMAGE` can select another published version or a digest. On Dokploy, change the application image reference and redeploy with its existing environment and persistent mount. Never replace an existing installation's configuration with newly generated credentials as part of an upgrade. Database downgrades may require restoring a matching backup.
+The default image is pinned to `ghcr.io/ubaimutl/waypoint:1.1.0`; `WAYPOINT_IMAGE` can select another published version or a digest. On Dokploy, change the application image reference and redeploy with its existing environment and persistent mount. Never replace an existing installation's configuration with newly generated credentials as part of an upgrade. Database downgrades may require restoring a matching backup.
 
 ## Build and sign an APK
 

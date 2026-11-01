@@ -20,12 +20,13 @@ import java.text.DateFormat
 import java.util.Date
 
 class MainActivity:Activity() {
- private val green=Color.rgb(43,93,73)
- private val ink=Color.rgb(35,53,43)
- private val muted=Color.rgb(100,113,102)
- private val line=Color.rgb(224,230,220)
+ private val green get()=UiAppearance.accent(this)
+ private val ink get()=UiAppearance.ink(this)
+ private val muted get()=UiAppearance.muted(this)
+ private val line get()=UiAppearance.line(this)
  private val handler=Handler(Looper.getMainLooper())
  private lateinit var root:LinearLayout
+ private lateinit var accountButton:Button
  private lateinit var serverValue:TextView
  private lateinit var connectionStatus:TextView
  private lateinit var modeHelp:TextView
@@ -39,27 +40,35 @@ class MainActivity:Activity() {
  private val refresh=object:Runnable{override fun run(){updateStatus();handler.postDelayed(this,1000)}}
  private fun dp(value:Int)=(value*resources.displayMetrics.density).toInt()
  private fun allowed(permission:String)=checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED
- private fun background(c:Int,border:Boolean=false)=GradientDrawable().apply{setColor(c);cornerRadius=dp(16).toFloat();if(border)setStroke(dp(1),line)}
+ private fun background(c:Int,border:Boolean=false)=GradientDrawable().apply{setColor(c);cornerRadius=dp(20).toFloat();if(border)setStroke(dp(1),line)}
 
  override fun onCreate(saved:Bundle?) {
-  super.onCreate(saved)
+  UiAppearance.apply(this);super.onCreate(saved)
   val provision=File(filesDir,"provision.json")
   if(provision.exists()) {
    try{Config.save(this,JSONObject(provision.readText()));Config.status(this,"Connection configured. Send a test location to verify.")}
    catch(_:Exception){Config.status(this,"Could not import connection settings.")}
    finally{provision.delete()}
   }
-  val scroll=ScrollView(this).apply{isFillViewport=true;setBackgroundColor(Color.rgb(244,246,242));clipToPadding=false}
+  if(runCatching{Config.account(this)}.getOrNull()!=null && !intent.getBooleanExtra("settings",false)){
+   startActivity(Intent(this,AccountActivity::class.java));finish();return
+  }
+  val scroll=ScrollView(this).apply{isFillViewport=true;setBackgroundColor(UiAppearance.page(this@MainActivity));clipToPadding=false}
   root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(24),dp(20),dp(24))}
   scroll.addView(root)
   scroll.setOnApplyWindowInsetsListener{v,insets->val bars=insets.getInsets(WindowInsets.Type.systemBars());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);insets}
-  setContentView(scroll)
-  val header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(0,0,0,dp(24))}
-  root.addView(header)
-  header.addView(ImageView(this).apply{setImageResource(R.drawable.ic_waypoint);importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO},LinearLayout.LayoutParams(dp(44),dp(44)).apply{marginEnd=dp(12)})
-  val titles=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};header.addView(titles,LinearLayout.LayoutParams(0,-2,1f))
-  text(titles,"Waypoint",28,true,ink)
-  text(titles,"Device locator",12,false,muted)
+  val frame=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(UiAppearance.page(this@MainActivity))}
+  frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+  val navigation=AppNavigation(this,1){index->if(index!=1){startActivity(Intent(this@MainActivity,AccountActivity::class.java).putExtra("openAccount",index==2));finish()}}
+  frame.addView(navigation,LinearLayout.LayoutParams(-1,dp(64)).apply{setMargins(dp(24),0,dp(24),dp(8))})
+  scroll.setOnApplyWindowInsetsListener(null)
+  frame.setOnApplyWindowInsetsListener{v,insets->val bars=insets.getInsets(WindowInsets.Type.systemBars());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);insets}
+  setContentView(frame)
+  text(root,"This phone",28,true,ink)
+  text(root,"Connection & recovery",14,false,muted).setPadding(0,dp(8),0,dp(20))
+
+  val account=card("Your account","Open the map to locate and ring your devices.")
+  accountButton=button(account,"Sign in to your server",true){startActivity(Intent(this,AccountActivity::class.java))}
 
   val connection=card("Connection","Choose how this phone receives internet requests.")
   val serverRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(0,dp(16),0,dp(16))};connection.addView(serverRow)
@@ -67,7 +76,7 @@ class MainActivity:Activity() {
   text(serverCopy,"Server",12,false,muted)
   serverValue=text(serverCopy,"No server configured",15,true,ink).apply{maxLines=2}
   button(serverRow,"Edit",false,true){connectionDialog()}.apply{layoutParams=LinearLayout.LayoutParams(dp(72),dp(48)).apply{marginStart=dp(12)}}
-  connectionStatus=text(connection,"Internet connection off",15,true,green).apply{setPadding(dp(12),dp(12),dp(12),dp(12));background=background(Color.rgb(238,244,233))}
+  connectionStatus=text(connection,"Internet connection off",15,true,green).apply{setPadding(dp(12),dp(12),dp(12),dp(12));background=background(UiAppearance.soft(this@MainActivity))}
   text(connection,"Internet mode",12,false,muted).setPadding(0,dp(20),0,dp(8))
   modeGroup=RadioGroup(this).apply{orientation=LinearLayout.VERTICAL}
   connection.addView(modeGroup)
@@ -131,14 +140,14 @@ class MainActivity:Activity() {
   text=value;textSize=size.toFloat();setTextColor(color);setLineSpacing(dp(3).toFloat(),1f);if(bold)setTypeface(null,Typeface.BOLD);parent.addView(this)
  }
  private fun card(title:String,description:String):LinearLayout {
-  val view=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(20),dp(20),dp(20));background=background(Color.WHITE,true)}
+  val view=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(16),dp(16),dp(16));background=background(UiAppearance.surface(this@MainActivity))}
   root.addView(view,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(16)})
   text(view,title,20,true,ink)
-  text(view,description,12,false,muted).setPadding(0,dp(8),0,0)
+  text(view,description,14,false,muted).setPadding(0,dp(8),0,0)
   return view
  }
  private fun button(parent:LinearLayout,label:String,primary:Boolean=false,compact:Boolean=false,action:()->Unit):Button {
-  val b=Button(this).apply{text=label;isAllCaps=false;textSize=15f;minHeight=dp(48);setTextColor(if(primary)Color.WHITE else green);background=background(if(primary)green else Color.rgb(241,245,237));setPadding(dp(12),dp(8),dp(12),dp(8));setOnClickListener{action()}}
+  val b=Button(this).apply{text=label;isAllCaps=false;textSize=15f;stateListAnimator=null;elevation=0f;minHeight=dp(48);setTextColor(if(primary)Color.WHITE else green);background=background(if(primary)UiAppearance.primary(this@MainActivity) else UiAppearance.soft(this@MainActivity));setPadding(dp(12),dp(8),dp(12),dp(8));setOnClickListener{action()}}
   parent.addView(b,LinearLayout.LayoutParams(-1,dp(48)).apply{if(!compact)topMargin=dp(12)})
   return b
  }
@@ -161,6 +170,9 @@ class MainActivity:Activity() {
  }
  private fun updateStatus() {
   if(!::serverValue.isInitialized)return
+  val signedIn=runCatching{Config.account(this)}.getOrNull()!=null
+  (accountButton.parent as View).visibility=if(signedIn)View.GONE else View.VISIBLE
+  accountButton.text="Sign in to your server"
   val state=getSharedPreferences("state",0)
   val config=runCatching{Config.read(this)}.getOrNull()
   serverValue.text=config?.optString("url")?:"No server configured"
@@ -184,7 +196,7 @@ class MainActivity:Activity() {
  private fun syncIdentity() {
   Thread {runCatching {
    Config.read(this)?.let {config->
-    val result=Tracker.api(config,"/api/device/identity",JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL))
+    val result=Tracker.api(config,"/api/device/identity",JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL).put("ring_supported",true))
     getSharedPreferences("state",0).edit().putString("deviceName",result.getString("name")).apply()
    }
   }}.start()
@@ -215,7 +227,7 @@ class MainActivity:Activity() {
   proxyFields.visibility=if(proxy.isChecked)View.VISIBLE else View.GONE
   proxy.setOnCheckedChangeListener{_,checked->proxyFields.visibility=if(checked)View.VISIBLE else View.GONE}
   val scroll=ScrollView(this).apply{addView(content)}
-  val dialog=AlertDialog.Builder(this).setTitle("Server connection").setView(scroll).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create()
+  val dialog=AlertDialog.Builder(this).setTitle("Advanced connection").setView(scroll).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create()
   dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
    try{
     val next=JSONObject().put("url",url.text.toString().trim().trimEnd('/')).put("token",token.text.toString().trim()).put("cfId",if(proxy.isChecked)id.text.toString().trim() else "").put("cfSecret",if(proxy.isChecked)secret.text.toString().trim() else "")

@@ -38,5 +38,20 @@ object Config {
   cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,Base64.decode(p.getString("iv",""),Base64.NO_WRAP)))
   return JSONObject(String(cipher.doFinal(Base64.decode(blob,Base64.NO_WRAP))))
  }
+ // Stored separately so signing out of controller access cannot stop recovery tracking.
+ fun saveAccount(context:Context,value:JSONObject?) {
+  val prefs=context.getSharedPreferences("account",0)
+  if(value==null){check(prefs.edit().clear().commit());return}
+  val cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key())
+  val bytes=cipher.doFinal(value.toString().toByteArray())
+  check(prefs.edit().putString("iv",Base64.encodeToString(cipher.iv,Base64.NO_WRAP)).putString("data",Base64.encodeToString(bytes,Base64.NO_WRAP)).commit())
+ }
+ fun account(context:Context):JSONObject? {
+  val prefs=context.getSharedPreferences("account",0)
+  val blob=prefs.getString("data",null)?:return null
+  val cipher=Cipher.getInstance("AES/GCM/NoPadding")
+  cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,Base64.decode(prefs.getString("iv",""),Base64.NO_WRAP)))
+  return JSONObject(String(cipher.doFinal(Base64.decode(blob,Base64.NO_WRAP))))
+ }
  fun status(context:Context,message:String) { context.getSharedPreferences("state",0).edit().putString("status",message).putLong("updated",System.currentTimeMillis()).apply() }
 }
